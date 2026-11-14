@@ -1,0 +1,118 @@
+services:
+  # 1. LiveKit Realtime WebRTC Media Server
+  livekit:
+    image: livekit/livekit-server:v1.8.3
+    container_name: fmi-livekit
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"       # HTTP / WebSocket signaling
+      - "7881:7881"       # WebRTC TCP fallback
+      - "7882:7882/udp"   # WebRTC UDP media
+    restart: unless-stopped
+    networks:
+      - fmi-network
+
+  # 2. Redis for ARQ Background Queue & Caching
+  redis:
+    image: redis:7-alpine
+    container_name: fmi-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - fmi-network
+
+  # 3. Kokoro TTS OpenAI-Compatible API
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.1
+    container_name: fmi-kokoro-tts
+    ports:
+      - "8880:8880"
+    restart: unless-stopped
+    networks:
+      - fmi-network
+
+  # 4. FastAPI Backend API
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: fmi-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secretsecretsecretsecretsecretsecretsecret
+    env_file:
+      - ../apps/api/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    volumes:
+      - ../apps/api:/app
+    networks:
+      - fmi-network
+
+  # 5. LiveKit Voice Agent Worker
+  agent:
+    build:
+      context: ../apps/agent
+      dockerfile: Dockerfile
+    container_name: fmi-agent
+    environment:
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secretsecretsecretsecretsecretsecretsecret
+      - KOKORO_API_URL=http://kokoro:8880/v1
+    env_file:
+      - ../apps/agent/.env
+    depends_on:
+      livekit:
+        condition: service_started
+      kokoro:
+        condition: service_started
+    volumes:
+      - ../apps/agent:/app
+    networks:
+      - fmi-network
+
+  # 6. React Web Frontend
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    container_name: fmi-web
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api/v1
+      - VITE_LIVEKIT_WS_URL=ws://localhost:7880
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - fmi-network
+
+networks:
+  fmi-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+

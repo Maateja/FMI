@@ -1,0 +1,21 @@
+{
+  "name": "fmi-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Freshers Mock Interview (FMI) - Voice-based AI mock interview platform",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck",
+    "test": "pnpm --filter web test",
+    "test:e2e": "pnpm --filter web test:e2e",
+    "api:dev": "cd apps/api && uvicorn src.main:app --reload --port 8000",
+    "agent:dev": "cd apps/agent && python -m src.main dev",
+    "docker:up": "docker compose -f infra/docker-compose.yml up",
+    "docker:down": "docker compose -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  }
+}
