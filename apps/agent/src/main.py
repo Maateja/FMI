@@ -7,7 +7,7 @@ from src.core.logging import agent_logger, setup_agent_logging
 from src.providers.base import LLMMessage
 
 try:
-    from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli  # type: ignore[import-untyped]
+    from livekit.agents import AutoSubscribe, JobContext, WorkerOptions, cli  # type: ignore[import-untyped,import-not-found]
     HAS_LIVEKIT_AGENTS = True
 except ImportError:
     HAS_LIVEKIT_AGENTS = False
