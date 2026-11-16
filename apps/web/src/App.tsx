@@ -10,6 +10,7 @@ import { SignupPage } from './pages/SignupPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { QuestionsPage } from './pages/QuestionsPage';
 import { InterviewRoomPage } from './pages/InterviewRoomPage';
+import { ReportPage } from './pages/ReportPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +62,14 @@ export const App: React.FC = () => {
                 element={
                   <ProtectedRoute>
                     <InterviewRoomPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/interview/:id/report"
+                element={
+                  <ProtectedRoute>
+                    <ReportPage />
                   </ProtectedRoute>
                 }
               />

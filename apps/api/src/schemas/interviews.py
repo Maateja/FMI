@@ -39,3 +39,21 @@ class TurnCreateRequest(BaseModel):
     word_timestamps: list[dict[str, Any]] = []
     duration_seconds: float = 0.0
     turn_metrics: dict[str, Any] = {}
+
+
+class BodyMetricItem(BaseModel):
+    timestamp_offset_seconds: float = Field(ge=0.0)
+    eye_contact_score: float = Field(ge=0.0, le=1.0)
+    head_pose_stability: float = Field(ge=0.0, le=1.0)
+    posture_score: float = Field(ge=0.0, le=1.0)
+    expressiveness_score: float = Field(ge=0.0, le=1.0)
+
+
+class BodyMetricsBatchRequest(BaseModel):
+    metrics: list[BodyMetricItem] = Field(min_length=1, max_length=100)
+
+
+class BodyMetricsBatchResponse(BaseModel):
+    interview_id: str
+    inserted_count: int
+    latest_snapshot: BodyMetricItem | None = None

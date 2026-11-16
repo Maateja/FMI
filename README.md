@@ -96,7 +96,7 @@ uv run uvicorn src.main:app --reload --port 8000
 - [x] **Phase 1: Foundation** - Monorepo scaffold, Supabase schema & RLS on 12 tables, 40+ seeded questions, FastAPI JWT auth, React Aurora UI, CI pipeline.
 - [x] **Phase 2: Voice Loop** - LiveKit WebRTC pipeline, Silero VAD, Groq Whisper STT, Gemini LLM brain, Kokoro TTS, interruption handling.
 - [x] **Phase 3: Interview UI** - Aurora orb (4 states), live captions (Web Speech + Whisper fallback), device check.
-- [ ] **Phase 4: Interview Logic** - State machine, adaptive follow-ups (max 2), turn persistence, usage limits.
-- [ ] **Phase 5: Camera Metrics** - In-browser MediaPipe FaceLandmarker + Pose, JSON metrics streaming.
-- [ ] **Phase 6: Report Engine** - Speech analytics, structured LLM evaluation, ARQ job, Playwright PDF export.
+- [x] **Phase 4: Interview Logic** - State machine, adaptive follow-ups (max 2), turn persistence, usage limits.
+- [x] **Phase 5: Camera Metrics** - In-browser MediaPipe FaceLandmarker + Pose, JSON metrics streaming.
+- [x] **Phase 6: Report Engine** - Speech analytics, structured LLM evaluation, ARQ job, Playwright PDF export.
 - [ ] **Phase 7: Hardening** - Rate limiting, security audit, Playwright E2E suite, production deployment guide.

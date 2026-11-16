@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from src.core.config import settings
 from src.core.logging import logger
+from src.services.interview_state import get_or_create_session
 
 
 class VoiceRoundTripResponse(BaseModel):
@@ -20,18 +21,30 @@ class VoiceRoundTripResponse(BaseModel):
     audio_base64: str
     audio_mime_type: str = "audio/wav"
     was_interrupted: bool = False
+    round: str = "technical"
+    question_index: int = 1
+    total_questions: int = 4
+    is_follow_up: bool = False
+    follow_up_count: int = 0
+    max_follow_ups: int = 2
+    quality_score: int = 75
+    is_completed: bool = False
+    turn_number: int = 1
 
 
 async def run_voice_round_trip(
     audio_bytes: bytes,
     target_role: str = "Frontend Developer",
+    interview_id: str | None = None,
+    user_id: str = "default-user",
 ) -> VoiceRoundTripResponse:
     """
-    Executes a high-speed voice round-trip:
+    Executes a high-speed voice round-trip integrated with Phase 4 State Machine:
     1. STT: Transcribe user audio (via Groq Whisper or fallback).
-    2. LLM: Generate interviewer probing follow-up (via Gemini or fallback).
+    2. Adaptive Probing & State Machine: Evaluates response completeness, determines
+       whether to ask follow-up 1 or 2, or advance round.
     3. TTS: Synthesize interviewer audio (via Kokoro or fallback).
-    Measures exact latency for each step.
+    4. Turn Persistence: Persists turn record to database.
     """
     t_start = time.perf_counter()
 
@@ -61,45 +74,26 @@ async def run_voice_round_trip(
     t_stt_end = time.perf_counter()
     stt_latency_ms = (t_stt_end - t_stt_start) * 1000
 
-    # 2. LLM Step (Interviewer Brain)
+    # 2. Phase 4 State Machine & Adaptive Probing
     t_llm_start = time.perf_counter()
-    ai_response = (
-        f"That's great. When optimizing {target_role} apps, "
-        "how do you diagnose whether bottlenecks stem from re-renders or DOM reflows?"
+
+    session_id = interview_id or "default-session"
+    session = get_or_create_session(
+        interview_id=session_id,
+        user_id=user_id,
+        target_role=target_role,
     )
 
-    gemini_key = settings.__dict__.get("GEMINI_API_KEY", "")
-    if gemini_key and not gemini_key.startswith("placeholder"):
-        try:
-            url = (
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash"
-                f":generateContent?key={gemini_key}"
-            )
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [
-                            {
-                                "text": (
-                                    "You are a warm, concise technical interviewer. "
-                                    f"The candidate said: '{transcript}'. "
-                                    "Respond in 1-2 sentences with one sharp adaptive follow-up."
-                                )
-                            }
-                        ],
-                    }
-                ],
-                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 100},
-            }
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                res = await client.post(url, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    ai_response = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except Exception as e:
-            logger.warning(f"Live LLM call failed, using adaptive template: {e}")
+    progression = await session.evaluate_and_advance(
+        user_transcript=transcript,
+        speech_metrics={
+            "stt_ms": round(stt_latency_ms, 2),
+            "duration_seconds": round(len(audio_bytes) / 32000.0, 2) if audio_bytes else 1.5,
+            "words_count": len(transcript.split()),
+        },
+    )
 
+    ai_response = str(progression["ai_next_speech"])
     t_llm_end = time.perf_counter()
     llm_latency_ms = (t_llm_end - t_llm_start) * 1000
 
@@ -134,6 +128,15 @@ async def run_voice_round_trip(
         audio_base64=base64.b64encode(synthetic_wav).decode("ascii"),
         audio_mime_type="audio/wav",
         was_interrupted=False,
+        round=str(progression.get("round", "technical")),
+        question_index=int(progression.get("question_index", 1)),
+        total_questions=int(progression.get("total_questions", 4)),
+        is_follow_up=bool(progression.get("is_follow_up", False)),
+        follow_up_count=int(progression.get("follow_up_count", 0)),
+        max_follow_ups=int(progression.get("max_follow_ups", 2)),
+        quality_score=int(progression.get("quality_score", 75)),
+        is_completed=bool(progression.get("is_completed", False)),
+        turn_number=int(progression.get("turn_number", 1)),
     )
 
 

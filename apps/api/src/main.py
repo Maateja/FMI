@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
 from src.core.logging import logger, setup_logging
+from src.core.security_middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from src.routes import auth, health, interviews, questions, resources
 
 
@@ -32,6 +33,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 7 Hardening: Defensive Security Headers & Rate Limiting
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware, max_requests_per_minute=200)
 
 # Mount routes
 app.include_router(health.router)

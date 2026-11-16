@@ -56,7 +56,7 @@ services:
       - LIVEKIT_API_KEY=devkey
       - LIVEKIT_API_SECRET=secretsecretsecretsecretsecretsecretsecret
     env_file:
-      - ../apps/api/.env
+      - ../.env
     depends_on:
       redis:
         condition: service_healthy
@@ -79,7 +79,7 @@ services:
       - LIVEKIT_API_SECRET=secretsecretsecretsecretsecretsecretsecret
       - KOKORO_API_URL=http://kokoro:8880/v1
     env_file:
-      - ../apps/agent/.env
+      - ../.env
     depends_on:
       livekit:
         condition: service_started
