@@ -2,7 +2,6 @@
   "name": "fmi-monorepo",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.15.4",
   "description": "Freshers Mock Interview (FMI) - Voice-based AI mock interview platform",
   "scripts": {
     "dev": "pnpm --filter web dev",
