@@ -93,8 +93,8 @@ services:
   # 6. React Web Frontend
   web:
     build:
-      context: ../apps/web
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: apps/web/Dockerfile
     container_name: fmi-web
     ports:
       - "5173:5173"

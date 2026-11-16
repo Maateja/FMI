@@ -99,4 +99,4 @@ uv run uvicorn src.main:app --reload --port 8000
 - [x] **Phase 4: Interview Logic** - State machine, adaptive follow-ups (max 2), turn persistence, usage limits.
 - [x] **Phase 5: Camera Metrics** - In-browser MediaPipe FaceLandmarker + Pose, JSON metrics streaming.
 - [x] **Phase 6: Report Engine** - Speech analytics, structured LLM evaluation, ARQ job, Playwright PDF export.
-- [ ] **Phase 7: Hardening** - Rate limiting, security audit, Playwright E2E suite, production deployment guide.
+- [x] **Phase 7: Hardening** - Rate limiting, security audit, Playwright E2E suite, production deployment guide.

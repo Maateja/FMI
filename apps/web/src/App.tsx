@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from './stores/authStore';
@@ -7,10 +7,29 @@ import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { QuestionsPage } from './pages/QuestionsPage';
-import { InterviewRoomPage } from './pages/InterviewRoomPage';
-import { ReportPage } from './pages/ReportPage';
+
+// Lazy-loaded route pages for optimized bundle size & code splitting
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage }))
+);
+const QuestionsPage = lazy(() =>
+  import('./pages/QuestionsPage').then((m) => ({ default: m.QuestionsPage }))
+);
+const InterviewRoomPage = lazy(() =>
+  import('./pages/InterviewRoomPage').then((m) => ({ default: m.InterviewRoomPage }))
+);
+const ReportPage = lazy(() =>
+  import('./pages/ReportPage').then((m) => ({ default: m.ReportPage }))
+);
+
+const PageLoader: React.FC = () => (
+  <div className="flex h-[60vh] items-center justify-center">
+    <div className="flex flex-col items-center gap-3">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <span className="text-xs text-muted-foreground animate-pulse font-mono">Loading module...</span>
+    </div>
+  </div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,49 +53,51 @@ export const App: React.FC = () => {
         <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
           <Navbar />
           <main className="flex-1">
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
 
-              {/* Protected Routes */}
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <DashboardPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/questions"
-                element={
-                  <ProtectedRoute>
-                    <QuestionsPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/interview/:id"
-                element={
-                  <ProtectedRoute>
-                    <InterviewRoomPage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/interview/:id/report"
-                element={
-                  <ProtectedRoute>
-                    <ReportPage />
-                  </ProtectedRoute>
-                }
-              />
+                {/* Protected Routes */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/questions"
+                  element={
+                    <ProtectedRoute>
+                      <QuestionsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/interview/:id"
+                  element={
+                    <ProtectedRoute>
+                      <InterviewRoomPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/interview/:id/report"
+                  element={
+                    <ProtectedRoute>
+                      <ReportPage />
+                    </ProtectedRoute>
+                  }
+                />
 
-              {/* Catch-all redirect */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                {/* Catch-all redirect */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
           </main>
         </div>
       </BrowserRouter>

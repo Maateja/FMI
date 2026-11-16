@@ -27,11 +27,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared types
+        run: pnpm --filter @fmi/shared-types build
+
+      - name: ESLint
+        run: pnpm --filter web lint
+
       - name: Type check (Strict TypeScript)
         run: pnpm --filter web typecheck
 
       - name: Run unit & component tests
         run: pnpm --filter web test:run
+
+      - name: Build web application
+        run: pnpm --filter web build
 
   lint-and-test-api:
     name: Backend API (Ruff, Mypy & Pytest)
@@ -67,7 +76,7 @@ jobs:
           pytest tests/ -v
 
   lint-and-test-agent:
-    name: LiveKit Agent Worker (Ruff & Pytest)
+    name: LiveKit Agent Worker (Ruff, Mypy & Pytest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,8 +98,27 @@ jobs:
           cd apps/agent
           ruff check .
 
+      - name: Run Mypy Type Checking
+        run: |
+          cd apps/agent
+          mypy src
+
       - name: Run Pytest Test Suite
         run: |
           cd apps/agent
           pytest tests/ -v
+
+  verify-rls-schema:
+    name: Database RLS Security Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify RLS Policies
+        run: python supabase/tests/verify_rls.py
 
