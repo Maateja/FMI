@@ -8,10 +8,10 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center space-y-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent" />
-          <p className="text-sm text-muted-foreground animate-pulse font-mono">Loading FMI Workspace...</p>
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          <p className="text-sm text-slate-500 font-medium">Loading FMI Workspace...</p>
         </div>
       </div>
     );

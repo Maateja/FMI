@@ -99,17 +99,18 @@ export const InterviewRoomPage: React.FC = () => {
   const [liveTranscript, setLiveTranscript] = useState<string>('');
   const [isWebSpeechSupported] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
-    const win = window as unknown as IWindow;
-    return Boolean(win.SpeechRecognition || win.webkitSpeechRecognition);
+    const win = window as IWindow;
+    return !!(win.SpeechRecognition || win.webkitSpeechRecognition);
   });
+  const speechRecognitionRef = useRef<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
 
-  // Phase 3: Pre-Interview Device Check State
-  const [showDeviceCheck, setShowDeviceCheck] = useState<boolean>(true);
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
-  const [speakerTested, setSpeakerTested] = useState<boolean>(false);
-  const [micTested, setMicTested] = useState<boolean>(false);
+  // Device Diagnostic check
+  const [showDeviceCheck, setShowDeviceCheck] = useState(false);
+  const [micTested, setMicTested] = useState(false);
+  const [speakerTested, setSpeakerTested] = useState(false);
+  const [cameraActive, setCameraActive] = useState(false);
 
-  // Phase 5: Client-Side Body Language Metrics
+  // Phase 5: Client-side MediaPipe Camera Metrics
   const [cameraMetrics, setCameraMetrics] = useState<LiveCameraFeedback>({
     eyeContact: 88,
     stability: 92,
@@ -118,60 +119,43 @@ export const InterviewRoomPage: React.FC = () => {
   });
   const cameraTrackerRef = useRef<CameraMetricsTracker | null>(null);
 
-  // Audio & Media Refs
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  // Audio Recording & Analysis
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const currentAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const speechRecognitionRef = useRef<any>(null);
+  const currentAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
-  // Initialize room token and session state
+  // 1. Fetch Room Token from FastAPI backend
   useEffect(() => {
-    async function initToken() {
+    async function initSession() {
       if (!id) return;
       try {
-        const data = await apiRequest<TokenResponse>(`/interviews/${id}/token`, {
-          method: 'POST',
-        });
+        const data = await apiRequest<TokenResponse>(`/interviews/${id}/token`);
         setTokenData(data);
-
-        // Fetch live state
-        const state = await apiRequest<{
-          round: string;
-          question_index: number;
-          total_questions: number;
-          current_question: string;
-          is_completed: boolean;
-        }>(`/interviews/${id}/state`);
-
-        if (state) {
-          setCurrentRound(state.round);
-          setQuestionIndex(state.question_index);
-          setTotalQuestions(state.total_questions);
-          if (state.current_question) setCurrentPrompt(state.current_question);
-          setIsCompleted(state.is_completed);
-        }
-      } catch {
-        // Fallback for standalone demo
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Backend offline - using local simulation mode';
+        setError(message);
         setTokenData({
-          token: 'demo-livekit-jwt-token',
-          server_url: 'wss://fmi-q913kpz5.livekit.cloud',
-          room_name: `fmi-room-${id?.slice(0, 8)}`,
-          participant_name: 'Candidate',
+          token: 'mock-jwt-token',
+          server_url: 'ws://localhost:7880',
+          room_name: `room-${id}`,
+          participant_name: 'alex.fresher',
         });
       }
     }
-    initToken();
+    initSession();
+  }, [id]);
 
+  // Clean up media on unmount
+  useEffect(() => {
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current.close();
       }
       if (currentAudioElementRef.current) {
         currentAudioElementRef.current.pause();
@@ -179,87 +163,110 @@ export const InterviewRoomPage: React.FC = () => {
       if (speechRecognitionRef.current) {
         try {
           speechRecognitionRef.current.stop();
-        } catch (err) {
-          void err;
+        } catch {
+          // ignore
         }
+      }
+      if (cameraTrackerRef.current) {
+        cameraTrackerRef.current.stop();
       }
       if (cameraStreamRef.current) {
         cameraStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      if (cameraTrackerRef.current) {
-        cameraTrackerRef.current.stop();
-        cameraTrackerRef.current = null;
-      }
     };
-  }, [id]);
+  }, []);
 
-  // Start Mic & Audio Analyser
-  const startRecording = async () => {
+  // Web Speech API
+  const startSpeechRecognition = () => {
+    if (!isWebSpeechSupported) return;
     try {
-      setError(null);
-      setLiveTranscript('');
+      const win = window as IWindow;
+      const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        setLiveTranscript(transcript);
+      };
+
+      recognition.onerror = () => {
+        // Fallback to Whisper chunks seamlessly
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+    } catch {
+      // Graceful fallback
+    }
+  };
+
+  const stopSpeechRecognition = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      speechRecognitionRef.current = null;
+    }
+  };
+
+  // Start Mic Recording & Audio Meter
+  const startRecording = async () => {
+    setError(null);
+    audioChunksRef.current = [];
+    setLiveTranscript('');
+
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
+      // Audio analysis for volume levels
       const AudioCtx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtx();
-      audioContextRef.current = ctx;
-
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 64;
-      source.connect(analyser);
+      const audioCtx = new AudioCtx();
+      audioContextRef.current = audioCtx;
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
       analyserRef.current = analyser;
 
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateLevel = () => {
+      const updateVolume = () => {
         if (!analyserRef.current) return;
         analyserRef.current.getByteFrequencyData(dataArray);
         const sum = dataArray.reduce((acc, val) => acc + val, 0);
         const avg = sum / dataArray.length;
-        setMicLevel(Math.min(100, Math.round((avg / 128) * 100)));
-        animFrameRef.current = requestAnimationFrame(updateLevel);
+        const normalized = Math.min(100, Math.round((avg / 128) * 100));
+        setMicLevel(normalized);
+        animFrameRef.current = requestAnimationFrame(updateVolume);
       };
-      updateLevel();
+      updateVolume();
 
-      // Web Speech API for instantaneous live captions (ADR 004)
-      const win = window as unknown as IWindow;
-      const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        try {
-          const recognition = new SpeechRecognition();
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          recognition.lang = 'en-US';
+      // Start Web Speech
+      startSpeechRecognition();
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          recognition.onresult = (event: any) => {
-            let current = '';
-            for (let i = 0; i < event.results.length; i++) {
-              current += event.results[i][0].transcript + ' ';
-            }
-            setLiveTranscript(current.trim());
-          };
-
-          recognition.start();
-          speechRecognitionRef.current = recognition;
-        } catch {
-          // Graceful fallback
-        }
-      }
-
-      // Setup MediaRecorder for backend STT ground truth
-      audioChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
+      // MediaRecorder setup
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         await sendAudioToVoiceLoop(audioBlob);
       };
@@ -269,84 +276,67 @@ export const InterviewRoomPage: React.FC = () => {
       setOrbState('listening');
       setMicTested(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Microphone access denied';
-      setError(`Microphone check: ${msg}. You can still run the simulated speech test.`);
+      const message = err instanceof Error ? err.message : 'Could not access microphone';
+      setError(`Microphone error: ${message}. Check browser permissions.`);
       setIsRecording(false);
+      setOrbState('idle');
     }
   };
 
+  // Stop Recording
   const stopRecording = () => {
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch (err) {
-        void err;
-      }
-      speechRecognitionRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
     }
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    stopSpeechRecognition();
     setIsRecording(false);
     setMicLevel(0);
     setOrbState('thinking');
   };
 
-  // Execute Voice Round Trip & Advance State Machine
+  // Send candidate audio to Phase 4 Voice Runner
   const sendAudioToVoiceLoop = async (audioBlob: Blob) => {
     setIsProcessing(true);
     setOrbState('thinking');
 
     try {
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
-        reader.onloadend = () => {
-          const res = reader.result as string;
-          const base64 = res.split(',')[1] || '';
-          resolve(base64);
-        };
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'candidate_response.webm');
+      if (liveTranscript) {
+        formData.append('live_transcript', liveTranscript);
+      }
+
+      const res = await apiRequest<LatencyBreakdown>(`/interviews/${id}/turn`, {
+        method: 'POST',
+        body: formData,
       });
-      reader.readAsDataURL(audioBlob);
-      const audioBase64 = await base64Promise;
 
-      const result = await apiRequest<LatencyBreakdown>(
-        `/interviews/${id || 'test'}/voice-loop/round-trip`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ audio_base64: audioBase64 }),
-        }
-      );
+      setMetrics(res);
+      setLatencyHistory((prev) => [...prev.slice(-4), res.total_round_trip_ms]);
 
-      setMetrics(result);
-      setLatencyHistory((prev) => [...prev.slice(-4), result.total_round_trip_ms]);
+      if (res.round) setCurrentRound(res.round);
+      if (res.question_index) setQuestionIndex(res.question_index);
+      if (res.total_questions) setTotalQuestions(res.total_questions);
+      if (res.is_follow_up !== undefined) setIsFollowUp(res.is_follow_up);
+      if (res.follow_up_count !== undefined) setFollowUpCount(res.follow_up_count);
+      if (res.is_completed !== undefined) setIsCompleted(res.is_completed);
+      if (res.ai_response) setCurrentPrompt(res.ai_response);
 
-      // Phase 4 State Updates
-      if (result.round) setCurrentRound(result.round);
-      if (result.question_index) setQuestionIndex(result.question_index);
-      if (result.total_questions) setTotalQuestions(result.total_questions);
-      if (typeof result.is_follow_up === 'boolean') setIsFollowUp(result.is_follow_up);
-      if (typeof result.follow_up_count === 'number') setFollowUpCount(result.follow_up_count);
-      if (result.is_completed) setIsCompleted(true);
-      if (result.ai_response) setCurrentPrompt(result.ai_response);
-
-      // Append Turn Record
       setTurnLogs((prev) => [
         ...prev,
         {
-          turn_number: result.turn_number || prev.length + 1,
-          round: result.round || currentRound,
-          user_transcript: result.user_transcript,
-          ai_response: result.ai_response,
-          is_follow_up: Boolean(result.is_follow_up),
+          turn_number: res.turn_number ?? prev.length + 1,
+          round: res.round ?? currentRound,
+          user_transcript: res.user_transcript,
+          ai_response: res.ai_response,
+          is_follow_up: res.is_follow_up ?? false,
         },
       ]);
 
-      playInterviewerAudio(result.audio_base64, result.audio_mime_type);
+      playInterviewerAudio(res.audio_base64, res.audio_mime_type);
     } catch {
-      // Fallback synthetic round trip
-      const nextIdx = questionIndex + 1;
+      // Fallback local simulation
+      const nextIdx = isFollowUp ? questionIndex : questionIndex + 1;
       const simDone = nextIdx > totalQuestions;
       const simulated: LatencyBreakdown = {
         user_transcript:
@@ -494,36 +484,36 @@ export const InterviewRoomPage: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-8 space-y-6">
+    <div className="container mx-auto max-w-6xl px-4 py-6 sm:py-8 space-y-6 bg-white min-h-[calc(100vh-4rem)]">
       {/* Top Header Navigation */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <Link
           to="/dashboard"
-          className="text-xs text-muted-foreground hover:text-white flex items-center gap-1.5 transition-colors"
+          className="text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Dashboard
+          Back to Dashboard
         </Link>
 
-        {/* Phase 4: Stage & Round Progress Tracker */}
-        <div className="flex items-center gap-2">
+        {/* Stage & Round Progress Tracker */}
+        <div className="flex flex-wrap items-center gap-2.5">
           {tokenData && (
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 border border-border text-xs font-mono text-slate-400">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>{tokenData.room_name}</span>
             </div>
           )}
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-border text-xs font-mono">
-            <span className="uppercase text-[10px] text-cyan-400 font-bold tracking-wider">
-              Round: {currentRound}
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50/80 border border-indigo-200/80 text-xs font-medium">
+            <span className="uppercase text-[11px] text-indigo-700 font-bold tracking-wider">
+              {currentRound}
             </span>
-            <span className="text-slate-600">|</span>
-            <span className="text-slate-300">
-              Q{questionIndex} of {totalQuestions}
+            <span className="text-indigo-300">|</span>
+            <span className="text-slate-700 font-semibold">
+              Question {questionIndex} of {totalQuestions}
             </span>
             {isFollowUp && (
-              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold border border-amber-500/30">
+              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300">
                 Probe {followUpCount}/2
               </span>
             )}
@@ -531,61 +521,61 @@ export const InterviewRoomPage: React.FC = () => {
 
           <button
             onClick={() => setShowDeviceCheck(!showDeviceCheck)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900 border border-border text-xs font-mono text-slate-300 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 shadow-sm transition-colors"
           >
-            <Settings className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Devices</span>
+            <Settings className="h-3.5 w-3.5 text-indigo-600" />
+            <span>Equipment</span>
           </button>
         </div>
       </div>
 
-      {/* Phase 4: Current Question Prompt Center */}
-      <div className="p-5 rounded-2xl bg-gradient-to-r from-cyan-950/40 via-slate-900/60 to-indigo-950/40 border border-cyan-500/30 shadow-lg relative overflow-hidden">
-        <div className="flex items-start gap-3">
-          <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 mt-0.5">
+      {/* Current Question Prompt Center */}
+      <div className="p-6 rounded-2xl bg-gradient-to-r from-indigo-50/90 via-white to-cyan-50/70 border border-indigo-100 shadow-soft relative overflow-hidden">
+        <div className="flex items-start gap-4">
+          <div className="p-2.5 rounded-xl bg-indigo-600 text-white shrink-0 mt-0.5 shadow-sm shadow-indigo-600/30">
             <HelpCircle className="h-5 w-5" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-cyan-400">
+              <span className="text-[11px] uppercase font-bold tracking-wider text-indigo-700 bg-indigo-100/60 px-2 py-0.5 rounded">
                 AI Interviewer Question
               </span>
               {isFollowUp && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-semibold">
-                  Adaptive Follow-up
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
+                  Adaptive Probing
                 </span>
               )}
             </div>
-            <p className="text-sm md:text-base text-slate-100 font-medium leading-relaxed">
+            <p className="text-base sm:text-lg text-slate-900 font-medium leading-relaxed">
               {currentPrompt}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Phase 4: Completion Banner */}
+      {/* Completion Banner */}
       {isCompleted && (
-        <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950/60 via-teal-950/50 to-slate-900 border border-emerald-500/40 shadow-xl flex items-center justify-between">
+        <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 shadow-soft flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Award className="h-5 w-5 text-emerald-400" />
-              Interview Session Complete!
+            <h3 className="text-base font-bold text-emerald-900 flex items-center gap-2">
+              <Award className="h-5 w-5 text-emerald-600" />
+              Interview Session Completed!
             </h3>
-            <p className="text-xs text-slate-300">
-              All question rounds and adaptive follow-ups have been completed.
+            <p className="text-xs text-emerald-700">
+              All question rounds, follow-up probes, and speech analytics have been recorded.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <Link
               to={`/interview/${id}/report`}
-              className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-cyan-500/20"
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5"
             >
               <Award className="h-4 w-4" />
               <span>View Full Report</span>
             </Link>
             <Link
               to="/dashboard"
-              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-border text-slate-200 font-semibold text-xs transition-colors"
+              className="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs transition-colors"
             >
               Dashboard
             </Link>
@@ -595,78 +585,78 @@ export const InterviewRoomPage: React.FC = () => {
 
       {/* Pre-Interview Device Check Accordion */}
       {showDeviceCheck && (
-        <div className="p-5 rounded-2xl border border-border bg-slate-950/70 backdrop-blur-xl shadow-md space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-border/40">
+        <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50/80 shadow-soft space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
             <div className="flex items-center gap-2">
-              <Headphones className="h-4 w-4 text-cyan-400" />
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+              <Headphones className="h-4 w-4 text-indigo-600" />
+              <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                 Hardware Equipment Diagnostic
               </h3>
             </div>
             <button
               onClick={() => setShowDeviceCheck(false)}
-              className="text-xs text-cyan-400 hover:text-cyan-300 font-medium"
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
             >
               Done Testing
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
             {/* Mic */}
-            <div className="p-3 rounded-xl bg-card/60 border border-border space-y-2">
+            <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-white flex items-center gap-1.5 text-xs">
-                  <Mic className="h-3.5 w-3.5 text-emerald-400" /> Microphone
+                <span className="font-semibold text-slate-900 flex items-center gap-1.5 text-xs">
+                  <Mic className="h-3.5 w-3.5 text-emerald-600" /> Microphone
                 </span>
                 {micTested ? (
-                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Ready
                   </span>
                 ) : (
                   <span className="text-[10px] text-slate-400">Untested</span>
                 )}
               </div>
-              <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                 <div
                   style={{ width: `${micLevel}%` }}
-                  className="h-full bg-emerald-400 transition-all duration-75"
+                  className="h-full bg-emerald-500 transition-all duration-75"
                 />
               </div>
             </div>
 
             {/* Speaker */}
-            <div className="p-3 rounded-xl bg-card/60 border border-border space-y-2">
+            <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-white flex items-center gap-1.5 text-xs">
-                  <Volume2 className="h-3.5 w-3.5 text-cyan-400" /> Audio Chime
+                <span className="font-semibold text-slate-900 flex items-center gap-1.5 text-xs">
+                  <Volume2 className="h-3.5 w-3.5 text-indigo-600" /> Audio Chime
                 </span>
                 {speakerTested && (
-                  <span className="text-[10px] text-cyan-400 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Verified
                   </span>
                 )}
               </div>
               <button
                 onClick={testSpeakerAudio}
-                className="w-full py-1 px-2.5 rounded bg-slate-900 border border-border hover:bg-slate-800 text-slate-200 text-[11px] font-medium transition-colors"
+                className="w-full py-1.5 px-2.5 rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold transition-colors"
               >
-                Play Test Audio
+                Play Test Chime
               </button>
             </div>
 
             {/* Camera */}
-            <div className="p-3 rounded-xl bg-card/60 border border-border space-y-2">
+            <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-white flex items-center gap-1.5 text-xs">
-                  <Camera className="h-3.5 w-3.5 text-indigo-400" /> Camera Feed
+                <span className="font-semibold text-slate-900 flex items-center gap-1.5 text-xs">
+                  <Camera className="h-3.5 w-3.5 text-cyan-600" /> Camera Feed
                 </span>
                 {cameraActive && (
-                  <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Live
                   </span>
                 )}
               </div>
-              <div className="relative w-full h-12 bg-slate-900 rounded overflow-hidden border border-border flex items-center justify-center">
+              <div className="relative w-full h-14 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex items-center justify-center">
                 <video
                   ref={videoPreviewRef}
                   autoPlay
@@ -675,20 +665,20 @@ export const InterviewRoomPage: React.FC = () => {
                   className={`w-full h-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
                 />
                 {!cameraActive && (
-                  <span className="text-[10px] text-slate-500">Preview inactive</span>
+                  <span className="text-[10px] text-slate-400">Preview inactive</span>
                 )}
               </div>
               <button
                 onClick={toggleCameraCheck}
-                className="w-full py-1 px-2.5 rounded bg-slate-900 border border-border hover:bg-slate-800 text-slate-200 text-[11px] font-medium transition-colors flex items-center justify-center gap-1"
+                className="w-full py-1.5 px-2.5 rounded-lg bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-semibold transition-colors flex items-center justify-center gap-1"
               >
                 {cameraActive ? (
                   <>
-                    <CameraOff className="h-3 w-3" /> Stop
+                    <CameraOff className="h-3 w-3 text-rose-600" /> Stop Camera
                   </>
                 ) : (
                   <>
-                    <Camera className="h-3 w-3" /> Start Preview
+                    <Camera className="h-3 w-3 text-indigo-600" /> Start Preview
                   </>
                 )}
               </button>
@@ -701,17 +691,17 @@ export const InterviewRoomPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Aurora Orb & Audio Controls (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="p-8 rounded-3xl border border-cyan-500/30 bg-card/60 backdrop-blur-xl shadow-2xl relative overflow-hidden flex flex-col items-center justify-center min-h-[440px]">
-            {/* Ambient Background Aura */}
+          <div className="p-8 rounded-3xl border border-slate-200 bg-white shadow-soft relative overflow-hidden flex flex-col items-center justify-center min-h-[460px]">
+            {/* Ambient Background Aura on White */}
             <div
               className={`absolute inset-0 transition-opacity duration-700 pointer-events-none ${
                 orbState === 'speaking'
-                  ? 'bg-gradient-to-tr from-cyan-500/20 via-teal-500/20 to-transparent opacity-80'
+                  ? 'bg-radial-gradient from-cyan-100/70 via-indigo-50/50 to-transparent opacity-90'
                   : orbState === 'listening'
-                  ? 'bg-gradient-to-tr from-emerald-500/20 via-cyan-500/10 to-transparent opacity-80'
+                  ? 'bg-radial-gradient from-emerald-100/70 via-teal-50/50 to-transparent opacity-90'
                   : orbState === 'thinking'
-                  ? 'bg-gradient-to-tr from-indigo-500/25 via-purple-500/20 to-transparent opacity-90'
-                  : 'bg-gradient-to-b from-cyan-500/10 to-transparent opacity-40'
+                  ? 'bg-radial-gradient from-purple-100/80 via-pink-50/50 to-transparent opacity-90'
+                  : 'bg-radial-gradient from-slate-100/60 to-transparent opacity-60'
               }`}
             />
 
@@ -719,69 +709,69 @@ export const InterviewRoomPage: React.FC = () => {
             <div className="relative flex items-center justify-center my-6 select-none">
               <div
                 style={{
-                  transform: `scale(${1 + (micLevel / 100) * 0.35})`,
+                  transform: `scale(${1 + (micLevel / 100) * 0.4})`,
                 }}
-                className={`w-48 h-48 rounded-full blur-2xl transition-all duration-300 ${
+                className={`w-52 h-52 rounded-full blur-2xl transition-all duration-300 ${
                   orbState === 'speaking'
-                    ? 'bg-gradient-to-r from-cyan-400 via-teal-300 to-indigo-500 opacity-90 animate-pulse'
+                    ? 'bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 opacity-70 animate-pulse'
                     : orbState === 'listening'
-                    ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-500 opacity-80'
+                    ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-70'
                     : orbState === 'thinking'
-                    ? 'bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-600 opacity-90 animate-spin'
-                    : 'bg-cyan-500/40 opacity-40'
+                    ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-80 animate-spin'
+                    : 'bg-indigo-200/60 opacity-50'
                 }`}
               />
 
               {/* Core Orb Sphere */}
               <div
-                className={`relative w-36 h-36 rounded-full border border-white/30 shadow-2xl flex items-center justify-center transition-all duration-500 ${
+                className={`relative w-40 h-40 rounded-full border border-white/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
                   orbState === 'speaking'
-                    ? 'bg-gradient-to-br from-cyan-300 via-teal-400 to-indigo-600 shadow-cyan-500/50 scale-105'
+                    ? 'bg-gradient-to-br from-cyan-400 via-teal-400 to-indigo-600 shadow-cyan-500/40 scale-105'
                     : orbState === 'listening'
-                    ? 'bg-gradient-to-br from-emerald-300 via-teal-500 to-cyan-600 shadow-emerald-500/40 scale-100'
+                    ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 shadow-emerald-500/35 scale-100'
                     : orbState === 'thinking'
-                    ? 'bg-gradient-to-br from-indigo-400 via-purple-500 to-pink-600 shadow-indigo-500/50 scale-95'
-                    : 'bg-gradient-to-br from-slate-800 via-slate-900 to-cyan-950/60 shadow-inner'
+                    ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-500/40 scale-95'
+                    : 'bg-gradient-to-br from-slate-100 via-indigo-50 to-slate-200 shadow-inner'
                 }`}
               >
-                {orbState === 'speaking' && <Volume2 className="h-10 w-10 text-white animate-pulse" />}
-                {orbState === 'listening' && <Mic className="h-10 w-10 text-white animate-bounce" />}
-                {orbState === 'thinking' && <Sparkles className="h-10 w-10 text-white animate-spin" />}
-                {orbState === 'idle' && <Radio className="h-8 w-8 text-cyan-400/80" />}
+                {orbState === 'speaking' && <Volume2 className="h-12 w-12 text-white animate-pulse" />}
+                {orbState === 'listening' && <Mic className="h-12 w-12 text-white animate-bounce" />}
+                {orbState === 'thinking' && <Sparkles className="h-12 w-12 text-white animate-spin" />}
+                {orbState === 'idle' && <Radio className="h-10 w-10 text-indigo-500" />}
               </div>
             </div>
 
             {/* Orb State Indicator Badge */}
             <div className="flex flex-col items-center gap-1.5 mt-2">
               <span
-                className={`text-xs uppercase font-mono tracking-widest font-bold px-3 py-1 rounded-full border transition-colors ${
+                className={`text-xs uppercase font-mono tracking-widest font-bold px-3.5 py-1 rounded-full border transition-colors ${
                   orbState === 'speaking'
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
                     : orbState === 'listening'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : orbState === 'thinking'
-                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                    : 'bg-slate-800 text-slate-400 border-border'
+                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}
               >
                 {orbState}
               </span>
-              <p className="text-xs text-slate-400 font-medium">
+              <p className="text-xs text-slate-500 font-medium">
                 {orbState === 'speaking' && 'Interviewer is speaking aloud...'}
                 {orbState === 'listening' && 'Listening to your spoken response...'}
                 {orbState === 'thinking' && 'LLM Brain evaluating depth & preparing response...'}
-                {orbState === 'idle' && 'Click Speak Answer to begin your response'}
+                {orbState === 'idle' && 'Click "Speak Answer" to begin your response'}
               </p>
             </div>
 
             {/* Dual-Engine Live Captions Display */}
             {isRecording && (
-              <div className="w-full max-w-md mt-5 p-3 rounded-2xl bg-slate-900/80 border border-emerald-500/30 text-center space-y-1">
-                <span className="text-[10px] uppercase font-mono text-emerald-400 font-semibold tracking-wider flex items-center justify-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+              <div className="w-full max-w-md mt-5 p-3.5 rounded-2xl bg-slate-50 border border-emerald-300 text-center space-y-1">
+                <span className="text-[10px] uppercase font-mono text-emerald-700 font-bold tracking-wider flex items-center justify-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
                   Live Speech ({isWebSpeechSupported ? 'Web Speech API' : 'Whisper STT'})
                 </span>
-                <p className="text-xs text-slate-200 min-h-[20px] italic">
+                <p className="text-xs text-slate-800 min-h-[20px] font-medium italic">
                   {liveTranscript || 'Start speaking your answer...'}
                 </p>
               </div>
@@ -790,14 +780,14 @@ export const InterviewRoomPage: React.FC = () => {
             {/* Mic Volume Level Bar */}
             {isRecording && (
               <div className="w-full max-w-xs mt-4 space-y-1">
-                <div className="flex justify-between text-[11px] text-slate-400 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-500 font-mono">
                   <span>Input Volume</span>
                   <span>{micLevel}%</span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     style={{ width: `${micLevel}%` }}
-                    className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-75"
+                    className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-75"
                   />
                 </div>
               </div>
@@ -805,12 +795,12 @@ export const InterviewRoomPage: React.FC = () => {
           </div>
 
           {/* Controls Bar */}
-          <div className="flex flex-wrap items-center justify-center gap-3 p-4 rounded-2xl border border-border/80 bg-card/40 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-center gap-3 p-4 rounded-2xl border border-slate-200 bg-white shadow-soft">
             {!isRecording ? (
               <button
                 onClick={startRecording}
                 disabled={isProcessing || isCompleted}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold text-xs shadow-md shadow-emerald-500/20 hover:opacity-90 disabled:opacity-50 transition-all flex items-center gap-2"
+                className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-md shadow-emerald-600/20 hover:shadow-emerald-600/30 disabled:opacity-50 transition-all flex items-center gap-2"
               >
                 <Mic className="h-4 w-4" />
                 Speak Answer (Record Mic)
@@ -818,7 +808,7 @@ export const InterviewRoomPage: React.FC = () => {
             ) : (
               <button
                 onClick={stopRecording}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-red-600 text-white font-semibold text-xs shadow-md shadow-rose-500/20 hover:opacity-90 transition-all flex items-center gap-2 animate-pulse"
+                className="px-6 py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-md shadow-rose-600/20 hover:shadow-rose-600/30 transition-all flex items-center gap-2 animate-pulse"
               >
                 <Square className="h-4 w-4 fill-current" />
                 Done Speaking (Send Answer)
@@ -828,16 +818,16 @@ export const InterviewRoomPage: React.FC = () => {
             <button
               onClick={runSimulatedRoundTrip}
               disabled={isRecording || isProcessing || isCompleted}
-              className="px-4 py-2.5 rounded-xl border border-border bg-slate-900/60 hover:bg-slate-800 text-slate-200 font-medium text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-colors flex items-center gap-2 disabled:opacity-50"
             >
-              <Zap className="h-3.5 w-3.5 text-cyan-400" />
+              <Zap className="h-3.5 w-3.5 text-indigo-600" />
               Simulate Answer
             </button>
 
             {orbState === 'speaking' && (
               <button
                 onClick={triggerInterruption}
-                className="px-4 py-2.5 rounded-xl border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 font-medium text-xs transition-colors flex items-center gap-1.5"
+                className="px-4 py-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold text-xs transition-colors flex items-center gap-1.5"
               >
                 <VolumeX className="h-3.5 w-3.5" />
                 Interrupt Interviewer
@@ -846,22 +836,22 @@ export const InterviewRoomPage: React.FC = () => {
           </div>
 
           {error && (
-            <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
               {error}
             </div>
           )}
         </div>
 
-        {/* Right Column: Latency Telemetry & Turns History (5 cols) */}
+        {/* Right Column: Latency Telemetry & Vision Cues (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           {/* Telemetry Card */}
-          <div className="p-6 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-xl shadow-xl space-y-4">
+          <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-soft space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                <Gauge className="h-4 w-4 text-cyan-400" />
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-indigo-600" />
                 Round-Trip Telemetry
               </h2>
-              <span className="text-[11px] font-mono text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
+              <span className="text-[11px] font-mono font-semibold text-indigo-700 px-2 py-0.5 rounded bg-indigo-50 border border-indigo-200">
                 Phase 4 Adaptive
               </span>
             </div>
@@ -869,45 +859,45 @@ export const InterviewRoomPage: React.FC = () => {
             {metrics ? (
               <div className="space-y-3 font-mono text-xs">
                 {/* Total Latency */}
-                <div className="p-4 rounded-2xl border border-cyan-500/30 bg-slate-950/60 flex items-center justify-between">
-                  <span className="text-slate-400 font-sans">Turn Turnaround:</span>
-                  <span className="text-lg font-bold text-cyan-300">
+                <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/60 flex items-center justify-between">
+                  <span className="text-slate-600 font-sans font-medium">Turn Turnaround:</span>
+                  <span className="text-lg font-bold text-indigo-700">
                     {metrics.total_round_trip_ms} ms
                   </span>
                 </div>
 
                 {/* Sub-steps */}
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-border">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Groq Whisper STT:</span>
-                    <span className="text-white font-semibold">{metrics.stt_latency_ms} ms</span>
+                    <span className="text-slate-900 font-bold">{metrics.stt_latency_ms} ms</span>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-border">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Gemini 2.0 Brain:</span>
-                    <span className="text-white font-semibold">{metrics.llm_latency_ms} ms</span>
+                    <span className="text-slate-900 font-bold">{metrics.llm_latency_ms} ms</span>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-border">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">First Audio Chunk:</span>
-                    <span className="text-emerald-400 font-semibold">
+                    <span className="text-emerald-600 font-bold">
                       {metrics.time_to_first_audio_ms} ms
                     </span>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-900/60 border border-border">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                     <span className="text-slate-500 block text-[10px]">Answer Quality:</span>
-                    <span className="text-cyan-400 font-semibold">
+                    <span className="text-indigo-600 font-bold">
                       {metrics.quality_score ?? 75}/100
                     </span>
                   </div>
                 </div>
 
                 {latencyHistory.length > 1 && (
-                  <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[10px] text-slate-400">
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
                     <span>Recent turns:</span>
                     <div className="flex gap-1.5">
                       {latencyHistory.map((val, idx) => (
                         <span
                           key={idx}
-                          className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono"
+                          className="px-1.5 py-0.5 rounded bg-slate-100 text-indigo-700 font-mono font-semibold"
                         >
                           {Math.round(val)}ms
                         </span>
@@ -917,42 +907,42 @@ export const InterviewRoomPage: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="py-6 text-center text-xs text-muted-foreground">
+              <div className="py-6 text-center text-xs text-slate-400">
                 Speak your answer or click &quot;Simulate Answer&quot; to advance turns.
               </div>
             )}
           </div>
 
-          {/* Phase 5: Privacy-Preserving Body Language Telemetry */}
-          <div className="p-6 rounded-3xl border border-indigo-500/30 bg-card/60 backdrop-blur-xl shadow-xl space-y-4">
+          {/* Privacy-Preserving Body Language Telemetry */}
+          <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-soft space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                <UserCheck className="h-4 w-4 text-indigo-400" />
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                <UserCheck className="h-4 w-4 text-indigo-600" />
                 Non-Verbal Cues (Vision)
               </h2>
-              <span className="text-[10px] font-mono text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
+              <span className="text-[10px] font-mono font-semibold text-emerald-700 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 flex items-center gap-1">
                 <ShieldCheck className="h-3 w-3" />
                 Zero Video Saved
               </span>
             </div>
 
             {/* Live Indicator Gauges */}
-            <div className="space-y-3 text-xs">
+            <div className="space-y-3.5 text-xs">
               {/* Eye Contact */}
               <div className="space-y-1">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Eye className="h-3.5 w-3.5 text-cyan-400" />
+                  <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                    <Eye className="h-3.5 w-3.5 text-indigo-600" />
                     Eye Contact &amp; Focus
                   </span>
-                  <span className="font-mono font-semibold text-cyan-300">
+                  <span className="font-mono font-bold text-slate-900">
                     {cameraMetrics.eyeContact}%
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     style={{ width: `${cameraMetrics.eyeContact}%` }}
-                    className="h-full bg-cyan-400 transition-all duration-300"
+                    className="h-full bg-indigo-600 transition-all duration-300"
                   />
                 </div>
               </div>
@@ -960,18 +950,18 @@ export const InterviewRoomPage: React.FC = () => {
               {/* Head Stability */}
               <div className="space-y-1">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Activity className="h-3.5 w-3.5 text-teal-400" />
+                  <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                    <Activity className="h-3.5 w-3.5 text-cyan-600" />
                     Head-Pose Stability
                   </span>
-                  <span className="font-mono font-semibold text-teal-300">
+                  <span className="font-mono font-bold text-slate-900">
                     {cameraMetrics.stability}%
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     style={{ width: `${cameraMetrics.stability}%` }}
-                    className="h-full bg-teal-400 transition-all duration-300"
+                    className="h-full bg-cyan-600 transition-all duration-300"
                   />
                 </div>
               </div>
@@ -979,18 +969,18 @@ export const InterviewRoomPage: React.FC = () => {
               {/* Posture */}
               <div className="space-y-1">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Award className="h-3.5 w-3.5 text-indigo-400" />
+                  <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                    <Award className="h-3.5 w-3.5 text-emerald-600" />
                     Upright Posture
                   </span>
-                  <span className="font-mono font-semibold text-indigo-300">
+                  <span className="font-mono font-bold text-slate-900">
                     {cameraMetrics.posture}%
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     style={{ width: `${cameraMetrics.posture}%` }}
-                    className="h-full bg-indigo-400 transition-all duration-300"
+                    className="h-full bg-emerald-600 transition-all duration-300"
                   />
                 </div>
               </div>
@@ -998,40 +988,40 @@ export const InterviewRoomPage: React.FC = () => {
               {/* Expressiveness */}
               <div className="space-y-1">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Smile className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-slate-700 font-medium flex items-center gap-1.5">
+                    <Smile className="h-3.5 w-3.5 text-amber-600" />
                     Expressiveness
                   </span>
-                  <span className="font-mono font-semibold text-amber-300">
+                  <span className="font-mono font-bold text-slate-900">
                     {cameraMetrics.expressiveness}%
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                   <div
                     style={{ width: `${cameraMetrics.expressiveness}%` }}
-                    className="h-full bg-amber-400 transition-all duration-300"
+                    className="h-full bg-amber-500 transition-all duration-300"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-border/40 text-[10px] text-slate-400 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
               <span>
                 {cameraActive ? '● Camera tracking active' : '○ Camera tracking preview disabled'}
               </span>
               <button
                 onClick={toggleCameraCheck}
-                className="text-cyan-400 hover:text-cyan-300 font-medium"
+                className="text-indigo-600 hover:text-indigo-800 font-semibold"
               >
                 {cameraActive ? 'Turn Off' : 'Enable Camera'}
               </button>
             </div>
           </div>
 
-          {/* Phase 4: Conversation Turns Log */}
-          <div className="p-6 rounded-3xl border border-border/80 bg-card/60 backdrop-blur-xl shadow-xl space-y-4 max-h-[380px] overflow-y-auto">
-            <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-400" />
+          {/* Conversation Turns Log */}
+          <div className="p-6 rounded-3xl border border-slate-200 bg-white shadow-soft space-y-4 max-h-[380px] overflow-y-auto">
+            <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <Activity className="h-4 w-4 text-emerald-600" />
               Persisted Turns ({turnLogs.length})
             </h2>
 
@@ -1040,25 +1030,25 @@ export const InterviewRoomPage: React.FC = () => {
                 {turnLogs.map((turn, idx) => (
                   <div
                     key={idx}
-                    className="p-3 rounded-xl bg-slate-900/80 border border-border/60 space-y-2"
+                    className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2"
                   >
                     <div className="flex items-center justify-between text-[10px] font-mono">
-                      <span className="text-cyan-400 font-semibold">
+                      <span className="text-indigo-700 font-bold">
                         Turn #{turn.turn_number} &bull; {turn.round}
                       </span>
                       {turn.is_follow_up && (
-                        <span className="text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                        <span className="text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full font-bold">
                           Follow-up Probe
                         </span>
                       )}
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-slate-300">
-                        <span className="text-slate-500 font-mono text-[10px]">You: </span>
+                    <div className="space-y-1.5">
+                      <p className="text-slate-800">
+                        <span className="text-slate-400 font-mono text-[10px] font-bold">You: </span>
                         {turn.user_transcript}
                       </p>
-                      <p className="text-teal-200">
-                        <span className="text-teal-500 font-mono text-[10px]">AI: </span>
+                      <p className="text-indigo-900">
+                        <span className="text-indigo-500 font-mono text-[10px] font-bold">AI: </span>
                         {turn.ai_response}
                       </p>
                     </div>
@@ -1066,7 +1056,7 @@ export const InterviewRoomPage: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <div className="py-6 text-center text-xs text-muted-foreground">
+              <div className="py-6 text-center text-xs text-slate-400">
                 No turns recorded yet. Answer the opening prompt to begin!
               </div>
             )}

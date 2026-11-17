@@ -23,10 +23,10 @@ const ReportPage = lazy(() =>
 );
 
 const PageLoader: React.FC = () => (
-  <div className="flex h-[60vh] items-center justify-center">
+  <div className="flex h-[60vh] items-center justify-center bg-white">
     <div className="flex flex-col items-center gap-3">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-      <span className="text-xs text-muted-foreground animate-pulse font-mono">Loading module...</span>
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+      <span className="text-xs text-slate-500 font-medium animate-pulse">Loading module...</span>
     </div>
   </div>
 );
