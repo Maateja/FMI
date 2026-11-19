@@ -10,6 +10,7 @@ from src.core.config import settings
 from src.core.database import get_supabase_admin_client
 from src.core.logging import logger
 from src.routes.questions import SAMPLE_QUESTIONS
+from src.services.adaptive_interviewer import generate_adaptive_follow_up_heuristic
 
 
 class TurnRecord(BaseModel):
@@ -139,11 +140,16 @@ class InterviewSessionState:
             answer=user_transcript,
         )
 
+        has_follow_up = bool(analysis.get("follow_up_question"))
+        force_probe = bool(analysis.get("requires_deep_dive", False))
+
+        # Probe adaptively across warmup, hr, and technical rounds if deep dive is needed
+        # or the candidate gave an incomplete answer, within the per-question limit
         should_probe = (
-            self.status == "technical"
-            and not analysis.get("is_complete", False)
+            self.status in ("warmup", "hr", "technical")
+            and (not analysis.get("is_complete", False) or force_probe)
             and self.follow_up_count < self.max_follow_ups
-            and bool(analysis.get("follow_up_question"))
+            and has_follow_up
         )
 
         if should_probe:
@@ -210,31 +216,47 @@ class InterviewSessionState:
         expected_points: list[str],
         answer: str,
     ) -> dict[str, Any]:
-        """Uses Gemini 2.0 Flash to evaluate answer depth and generate adaptive follow-up."""
+        """
+        Evaluates candidate response and generates adaptive follow-up questions:
+        - If the candidate mentioned building a project, asks how they built it and why they chose that tech stack.
+        - If the candidate mentioned a certification or course, asks about key concepts and practical application.
+        - If the candidate mentioned a specific technology (e.g. React), asks deep-dive technical questions.
+        - Uses Gemini 2.0 Flash when available, with intelligent heuristic fallback.
+        """
         api_key = settings.__dict__.get("GEMINI_API_KEY", "")
-        if not api_key or api_key.startswith("placeholder") or len(answer.strip()) < 10:
-            # Deterministic local fallback
-            is_short = len(answer.split()) < 15
-            return {
-                "is_complete": not is_short,
-                "quality_score": 65 if is_short else 85,
-                "follow_up_question": (
-                    "Could you elaborate more specifically on how you handled that in practice?"
-                    if is_short
-                    else None
-                ),
-            }
+        if not api_key or api_key.startswith("placeholder") or len(answer.strip()) < 8:
+            return generate_adaptive_follow_up_heuristic(
+                answer=answer,
+                question=question,
+                current_round=self.status,
+                target_role=self.target_role,
+            )
 
         prompt = (
-            f"You are an expert AI technical interviewer assessing a college fresher candidate.\n"
-            f"Question asked: \"{question}\"\n"
-            f"Expected key points: {', '.join(expected_points)}\n"
-            f"Candidate spoken response: \"{answer}\"\n\n"
-            "Provide a concise JSON response with:\n"
-            "- is_complete (boolean: true if candidate addressed core concepts satisfactorily)\n"
-            "- quality_score (integer: 0 to 100)\n"
-            "- follow_up_question (string or null: If is_complete is false, "
-            "write ONE concise follow-up sentence probing the missing detail. If complete, null.)\n"
+            "You are an expert, warm, and highly adaptive AI technical interviewer for college freshers.\n"
+            f"Current Round: {self.status.upper()}\n"
+            f"Target Role: {self.target_role}\n"
+            f"Question Asked: \"{question}\"\n"
+            f"Expected Key Points: {', '.join(expected_points) if expected_points else 'General relevant knowledge'}\n"
+            f"Candidate Spoken Response: \"{answer}\"\n\n"
+            "Evaluate the response and generate an adaptive follow-up based on these rules:\n"
+            "1. IF THE CANDIDATE MENTIONED A PROJECT THEY BUILT: Ask how they built it, why they chose that specific tech stack over alternatives, their architecture, or how they solved an engineering challenge.\n"
+            "2. IF THE CANDIDATE MENTIONED A CERTIFICATION OR COURSE: Ask what key hands-on problem they solved, what they found most challenging, or how they applied that knowledge in practice.\n"
+            "3. IF THE CANDIDATE MENTIONED A SPECIFIC TECH (e.g. React, Node, Python, SQL, Docker): Ask an insightful technical question about how they used it, trade-offs, state management, performance, or internal mechanics.\n"
+            "4. IF THE RESPONSE IS VAGUE OR TOO SHORT: Ask them to substantiate with a concrete example or deep-dive into the practical steps.\n"
+            "5. Speak as the interviewer in 1 to 2 concise spoken sentences. Ask ONE clear question at a time.\n\n"
+            "Provide a concise JSON response strictly matching this schema:\n"
+            "{\n"
+            "  \"is_complete\": boolean,\n"
+            "  \"requires_deep_dive\": boolean,\n"
+            "  \"quality_score\": integer between 0 and 100,\n"
+            "  \"follow_up_question\": string or null,\n"
+            "  \"detected_topics\": {\n"
+            "    \"projects\": string[],\n"
+            "    \"certifications\": string[],\n"
+            "    \"technologies\": string[]\n"
+            "  }\n"
+            "}\n"
             "Respond with ONLY valid JSON."
         )
 
@@ -252,16 +274,17 @@ class InterviewSessionState:
                 if res.status_code == 200:
                     text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     parsed = json.loads(text)
-                    if isinstance(parsed, dict):
+                    if isinstance(parsed, dict) and "is_complete" in parsed:
                         return parsed
         except Exception as exc:
             logger.warning(f"Error in Gemini adaptive analysis: {exc}")
 
-        return {
-            "is_complete": len(answer.split()) >= 20,
-            "quality_score": 75,
-            "follow_up_question": "Can you provide a concrete example of that from your projects?",
-        }
+        return generate_adaptive_follow_up_heuristic(
+            answer=answer,
+            question=question,
+            current_round=self.status,
+            target_role=self.target_role,
+        )
 
     async def _persist_turn_to_db(self, turn: TurnRecord) -> None:
         """Saves turn into Supabase interview_turns table with silent fallback."""

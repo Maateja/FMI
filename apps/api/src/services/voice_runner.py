@@ -37,10 +37,11 @@ async def run_voice_round_trip(
     target_role: str = "Frontend Developer",
     interview_id: str | None = None,
     user_id: str = "default-user",
+    user_transcript_override: str | None = None,
 ) -> VoiceRoundTripResponse:
     """
     Executes a high-speed voice round-trip integrated with Phase 4 State Machine:
-    1. STT: Transcribe user audio (via Groq Whisper or fallback).
+    1. STT: Transcribe user audio (via Groq Whisper, client override, or fallback).
     2. Adaptive Probing & State Machine: Evaluates response completeness, determines
        whether to ask follow-up 1 or 2, or advance round.
     3. TTS: Synthesize interviewer audio (via Kokoro or fallback).
@@ -50,10 +51,14 @@ async def run_voice_round_trip(
 
     # 1. STT Step
     t_stt_start = time.perf_counter()
-    transcript = "I have experience with React hooks and optimizing web app re-renders."
+    transcript = (
+        user_transcript_override.strip()
+        if user_transcript_override and user_transcript_override.strip()
+        else "I have experience with React hooks and optimizing web app re-renders."
+    )
 
     groq_key = settings.__dict__.get("GROQ_API_KEY", "")
-    if len(audio_bytes) > 1000 and groq_key and not groq_key.startswith("placeholder"):
+    if not user_transcript_override and len(audio_bytes) > 1000 and groq_key and not groq_key.startswith("placeholder"):
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 files_payload: list[tuple[str, tuple[str | None, bytes | str, str | None]]] = [

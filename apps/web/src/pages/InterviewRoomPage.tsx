@@ -335,15 +335,42 @@ export const InterviewRoomPage: React.FC = () => {
 
       playInterviewerAudio(res.audio_base64, res.audio_mime_type);
     } catch {
-      // Fallback local simulation
-      const nextIdx = isFollowUp ? questionIndex : questionIndex + 1;
+      // Fallback local simulation with dynamic adaptive probing
+      const lower = (liveTranscript || '').toLowerCase();
+      let simResponse = 'Great explanation. How do you approach debugging and optimizing performance in that architecture?';
+      let simFollowUp = false;
+
+      if (/built|project|created|developed|app|website|ecommerce|system|fullstack/.test(lower)) {
+        simFollowUp = true;
+        if (/react/.test(lower)) {
+          simResponse = 'You mentioned building that with React! Why did you choose that specific tech stack over alternatives, and how did you architect the application?';
+        } else if (/node|express|backend/.test(lower)) {
+          simResponse = 'That sounds like a solid project. How did you structure your API endpoints and handle database connection scaling?';
+        } else if (/python|fastapi|django/.test(lower)) {
+          simResponse = 'Interesting project choice! How did you design the backend services and what was the biggest technical hurdle you resolved?';
+        } else {
+          simResponse = 'That sounds like an impressive project! How did you build it from the ground up, and why did you choose your particular tech stack?';
+        }
+      } else if (/certification|certified|course|coursera|udemy|bootcamp/.test(lower)) {
+        simFollowUp = true;
+        simResponse = 'Congratulations on completing that certification course! What was the most challenging technical concept you tackled, and how have you applied it to real code?';
+      } else if (/react/.test(lower)) {
+        simFollowUp = true;
+        simResponse = 'You brought up React—how do you handle component state and side effects, and what strategies do you use to prevent unnecessary re-renders?';
+      } else if (/myself|introduce|background|student|graduate|college|hello|hi/.test(lower)) {
+        simResponse = 'Thank you for sharing your background! Could you highlight one standout technical project from your resume that you are proud of building?';
+      }
+
+      const nextIdx = simFollowUp || isFollowUp ? questionIndex : questionIndex + 1;
       const simDone = nextIdx > totalQuestions;
+      const finalAiResponse = simDone
+        ? 'That concludes our mock interview session today! Generating your performance analysis.'
+        : simResponse;
+
       const simulated: LatencyBreakdown = {
         user_transcript:
           liveTranscript || 'I have experience implementing state management with Redux and React Context.',
-        ai_response: simDone
-          ? 'That concludes our mock interview session today! Generating your performance analysis.'
-          : 'Great explanation. How do you prevent unnecessary child re-renders when context values update?',
+        ai_response: finalAiResponse,
         stt_latency_ms: 120.4,
         llm_latency_ms: 280.2,
         time_to_first_audio_ms: 450.0,
@@ -351,18 +378,31 @@ export const InterviewRoomPage: React.FC = () => {
         audio_base64: '',
         audio_mime_type: 'audio/wav',
         was_interrupted: false,
-        round: simDone ? 'completed' : 'technical',
+        round: simDone ? 'completed' : currentRound,
         question_index: Math.min(nextIdx, totalQuestions),
         total_questions: totalQuestions,
-        is_follow_up: false,
-        follow_up_count: 0,
+        is_follow_up: simFollowUp,
+        follow_up_count: simFollowUp ? followUpCount + 1 : 0,
         is_completed: simDone,
       };
 
       setMetrics(simulated);
       setLatencyHistory((prev) => [...prev.slice(-4), simulated.total_round_trip_ms]);
       if (simDone) setIsCompleted(true);
+      if (simFollowUp) setIsFollowUp(true);
       setCurrentPrompt(simulated.ai_response);
+
+      setTurnLogs((prev) => [
+        ...prev,
+        {
+          turn_number: prev.length + 1,
+          round: simulated.round || currentRound || 'technical',
+          user_transcript: simulated.user_transcript,
+          ai_response: simulated.ai_response,
+          is_follow_up: simFollowUp,
+        },
+      ]);
+
       setOrbState('speaking');
       setTimeout(() => setOrbState('listening'), 3000);
     } finally {

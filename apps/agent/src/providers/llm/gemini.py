@@ -41,7 +41,28 @@ class GeminiLLM(LLMProvider):
         # Fallback to MockLLM if placeholder key
         if self.api_key.startswith("placeholder"):
             agent_logger.warning("Using mock LLM because GEMINI_API_KEY is a placeholder")
-            return "That's a solid explanation. Can you elaborate on how closures affect memory management and garbage collection?"
+            last_user_text = ""
+            for m in reversed(messages):
+                if m.role == "user":
+                    last_user_text = m.content.lower()
+                    break
+
+            if any(k in last_user_text for k in ["project", "built", "created", "developed", "app", "website"]):
+                tech_match = next((t for t in ["react", "node", "python", "fastapi", "django", "sql", "aws", "docker", "nextjs"] if t in last_user_text), None)
+                if tech_match:
+                    return f"You mentioned building that with {tech_match.title()}! Why did you choose that specific tech stack over alternatives, and how did you architect the application?"
+                return "That sounds like an interesting project! How did you build it from scratch, and what was the toughest engineering challenge you solved?"
+
+            if any(k in last_user_text for k in ["certification", "certified", "course", "coursera", "udemy", "bootcamp"]):
+                return "Congratulations on completing that certification course! What was the most challenging technical concept you mastered, and how have you applied it to real code?"
+
+            if "react" in last_user_text:
+                return "You brought up React—how do you manage component state and side effects, and what strategies do you use to prevent unnecessary re-renders?"
+
+            if any(k in last_user_text for k in ["myself", "background", "student", "graduate", "college", "introduce", "hello", "hi"]):
+                return "Thank you for introducing yourself! Could you highlight one technical project from your resume that you are most proud of building?"
+
+            return "That's a solid explanation. Can you elaborate on how you handle performance optimization and error handling in that context?"
 
         url = f"{self.base_url}:generateContent?key={self.api_key}"
         payload = {

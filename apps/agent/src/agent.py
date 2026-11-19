@@ -19,20 +19,38 @@ class VoiceLoopAgent:
         stt: STTProvider | None = None,
         llm: LLMProvider | None = None,
         tts: TTSProvider | None = None,
+        target_role: str = "Frontend Developer",
+        candidate_name: str | None = None,
     ) -> None:
         self.stt = stt or get_stt_provider()
         self.llm = llm or get_llm_provider()
         self.tts = tts or get_tts_provider()
+        self.target_role = target_role
+        self.candidate_name = candidate_name
 
         self.state: str = "idle"  # idle | speaking | listening | thinking
         self.is_interrupted: bool = False
+
+        candidate_ctx = f" Target role: {target_role}." if target_role else ""
+        if candidate_name:
+            candidate_ctx += f" Candidate name: {candidate_name}."
+
         self.conversation_history: list[LLMMessage] = [
             LLMMessage(
                 role="system",
                 content=(
-                    "You are a professional, warm AI technical interviewer for college freshers. "
-                    "Speak in 1 to 2 clear, concise sentences. Ask ONE question at a time. "
-                    "Never reveal scoring or recite answers during the interview."
+                    "You are an elite, warm, and highly adaptive AI technical interviewer for college freshers and campus hires."
+                    f"{candidate_ctx}\n"
+                    "Your interview style is deeply conversational, active, and context-aware:\n"
+                    "1. ACTIVE LISTENING: Pay close attention to everything the candidate shares in their responses.\n"
+                    "2. PROJECT INQUIRY: Whenever the candidate mentions a project they built or worked on, ask how they built it, "
+                    "why they chose that specific tech stack over alternatives, their architectural decisions, and what engineering challenges they solved.\n"
+                    "3. CERTIFICATION & COURSE INQUIRY: Whenever the candidate mentions a certification, online course, or training, "
+                    "ask what key concepts they mastered and how they applied that knowledge to real-world code.\n"
+                    "4. RESUME & TECHNICAL PROBING: Ask questions aligned with their target role and the skills they bring up (e.g., React, Node, Python, SQL), "
+                    "probing into real-world trade-offs, state management, edge cases, and performance.\n"
+                    "5. NATURAL CONVERSATION & PACING: Start with a warm introduction ('Tell me about yourself'), ask ONE question at a time, "
+                    "and speak in 1 to 2 clear, concise spoken sentences. Never reveal scoring or recite answers during the live interview."
                 ),
             )
         ]

@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -158,6 +158,61 @@ async def get_room_token(
 
 class VoiceRoundTripPayload(BaseModel):
     audio_base64: str = ""
+    live_transcript: str | None = None
+
+
+@router.post(
+    "/{interview_id}/turn",
+    response_model=VoiceRoundTripResponse,
+)
+async def submit_interview_turn(
+    interview_id: str,
+    request: Request,
+    user: CurrentUser = Depends(require_user),
+) -> VoiceRoundTripResponse:
+    """
+    Submits a candidate turn (audio or recognized live_transcript text) for
+    adaptive follow-up evaluation and conversational state progression.
+    Supports both multipart/form-data from web clients and JSON payloads.
+    """
+    interview = _dev_interviews.get(interview_id)
+    target_role = str(interview["target_role"]) if interview else "Frontend Developer"
+
+    raw_audio = b""
+    user_transcript: str | None = None
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        audio_file = form.get("audio")
+        if audio_file and hasattr(audio_file, "read"):
+            raw_audio = await audio_file.read()
+        live_text = form.get("live_transcript")
+        if isinstance(live_text, str) and live_text.strip():
+            user_transcript = live_text.strip()
+    else:
+        try:
+            body = await request.json()
+            if "audio_base64" in body and body["audio_base64"]:
+                raw_audio = base64.b64decode(body["audio_base64"])
+            if "live_transcript" in body and body["live_transcript"]:
+                user_transcript = str(body["live_transcript"]).strip()
+        except Exception:
+            raw_audio = await request.body()
+
+    # Update interview started_at timestamp
+    if interview and interview.get("started_at") is None:
+        interview["started_at"] = datetime.now(UTC)
+        interview["status"] = "in_progress"
+        await increment_usage(user.id)
+
+    return await run_voice_round_trip(
+        raw_audio,
+        target_role=target_role,
+        interview_id=interview_id,
+        user_id=user.id,
+        user_transcript_override=user_transcript,
+    )
 
 
 @router.post(
@@ -191,6 +246,7 @@ async def execute_voice_round_trip(
         target_role=target_role,
         interview_id=interview_id,
         user_id=user.id,
+        user_transcript_override=payload.live_transcript,
     )
 
 
