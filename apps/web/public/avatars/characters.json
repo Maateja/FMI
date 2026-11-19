@@ -1,0 +1,67 @@
+[
+  {
+    "id": "arjun",
+    "name": "Arjun Mehta",
+    "gender": "male",
+    "age": 28,
+    "title": "Senior Backend & Systems Architect",
+    "model": "/avatars/arjun.glb",
+    "voice_kokoro": "am_adam",
+    "voice_edge": "en-US-GuyNeural",
+    "primary_color": "#3B82F6",
+    "specialization": "Backend Architecture, DB Scaling, Distributed Systems",
+    "personality": "Analytical, rigorous, systems-focused"
+  },
+  {
+    "id": "rohan",
+    "name": "Rohan Verma",
+    "gender": "male",
+    "age": 24,
+    "title": "Frontend Lead & UI Performance Architect",
+    "model": "/avatars/rohan.glb",
+    "voice_kokoro": "am_michael",
+    "voice_edge": "en-US-ChristopherNeural",
+    "primary_color": "#6366F1",
+    "specialization": "React, TypeScript, Web Vitals, Responsive UX",
+    "personality": "Energetic, practical, code-focused"
+  },
+  {
+    "id": "priya",
+    "name": "Priya Sharma",
+    "gender": "female",
+    "age": 27,
+    "title": "HR Lead & Behavioral Specialist",
+    "model": "/avatars/priya.glb",
+    "voice_kokoro": "af_heart",
+    "voice_edge": "en-US-JennyNeural",
+    "primary_color": "#EC4899",
+    "specialization": "Behavioral STAR Method, Conflict Resolution, Team Culture",
+    "personality": "Warm, empathetic, culture & values-focused"
+  },
+  {
+    "id": "ananya",
+    "name": "Ananya Patel",
+    "gender": "female",
+    "age": 25,
+    "title": "Fullstack Cloud & DevOps Engineer",
+    "model": "/avatars/ananya.glb",
+    "voice_kokoro": "af_sarah",
+    "voice_edge": "en-US-MichelleNeural",
+    "primary_color": "#10B981",
+    "specialization": "Cloud Infrastructure, Docker, CI/CD, Fullstack Integration",
+    "personality": "Curious, detail-oriented, pragmatic"
+  },
+  {
+    "id": "kavita",
+    "name": "Kavita Rao",
+    "gender": "female",
+    "age": 33,
+    "title": "Director of Engineering & Bar Raiser",
+    "model": "/avatars/kavita.glb",
+    "voice_kokoro": "af_bella",
+    "voice_edge": "en-US-AriaNeural",
+    "primary_color": "#8B5CF6",
+    "specialization": "System Design, Tech Leadership, Production Reliability",
+    "personality": "Strategic, high-bar, encouraging mentor"
+  }
+]

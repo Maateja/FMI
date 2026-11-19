@@ -23,8 +23,12 @@ import {
   Eye,
   Smile,
   UserCheck,
+  User,
 } from 'lucide-react';
 import { CameraMetricsTracker, LiveCameraFeedback } from '../services/cameraMetrics';
+import { CHARACTERS_LIST, InterviewerCharacter } from '../types/characters';
+import { CharacterSelector } from '../components/avatar/CharacterSelector';
+import { AvatarStudio3D } from '../components/avatar/AvatarStudio3D';
 
 interface TokenResponse {
   token: string;
@@ -109,6 +113,16 @@ export const InterviewRoomPage: React.FC = () => {
   const [micTested, setMicTested] = useState(false);
   const [speakerTested, setSpeakerTested] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+
+  // 3D Human Avatar & Interviewer Persona Selection
+  const [selectedCharacter, setSelectedCharacter] = useState<InterviewerCharacter>(
+    CHARACTERS_LIST[0]!
+  );
+  const [viewMode, setViewMode] = useState<'3d_avatar' | 'aurora_orb'>('3d_avatar');
+  const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
+  const [currentVisemes, setCurrentVisemes] = useState<
+    Array<{ time_ms: number; viseme: string; jaw_open: number; mouth_smile: number }>
+  >([]);
 
   // Phase 5: Client-side MediaPipe Camera Metrics
   const [cameraMetrics, setCameraMetrics] = useState<LiveCameraFeedback>({
@@ -302,6 +316,7 @@ export const InterviewRoomPage: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'candidate_response.webm');
+      formData.append('character_id', selectedCharacter.id);
       if (liveTranscript) {
         formData.append('live_transcript', liveTranscript);
       }
@@ -333,7 +348,12 @@ export const InterviewRoomPage: React.FC = () => {
         },
       ]);
 
-      playInterviewerAudio(res.audio_base64, res.audio_mime_type);
+      const visemesData = (
+        res as unknown as {
+          visemes?: Array<{ time_ms: number; viseme: string; jaw_open: number; mouth_smile: number }>;
+        }
+      ).visemes;
+      playInterviewerAudio(res.audio_base64, res.audio_mime_type, visemesData);
     } catch {
       // Fallback local simulation with dynamic adaptive probing
       const lower = (liveTranscript || '').toLowerCase();
@@ -410,25 +430,41 @@ export const InterviewRoomPage: React.FC = () => {
     }
   };
 
-  // Playback Interviewer Audio
-  const playInterviewerAudio = (audioBase64: string, mimeType: string) => {
+  // Playback Interviewer Audio & Lip-Sync
+  const playInterviewerAudio = (
+    audioBase64: string,
+    mimeType: string,
+    visemeData?: Array<{ time_ms: number; viseme: string; jaw_open: number; mouth_smile: number }>
+  ) => {
+    if (visemeData && visemeData.length > 0) {
+      setCurrentVisemes(visemeData);
+    }
     if (!audioBase64) {
       setOrbState('speaking');
-      setTimeout(() => setOrbState('listening'), 2500);
+      setIsAudioPlaying(true);
+      setTimeout(() => {
+        setOrbState('listening');
+        setIsAudioPlaying(false);
+      }, 2500);
       return;
     }
 
     setOrbState('speaking');
+    setIsAudioPlaying(true);
     const audioUrl = `data:${mimeType};base64,${audioBase64}`;
     const audio = new Audio(audioUrl);
     currentAudioElementRef.current = audio;
 
     audio.onended = () => {
       setOrbState('listening');
+      setIsAudioPlaying(false);
     };
 
     audio.play().catch(() => {
-      setTimeout(() => setOrbState('listening'), 2000);
+      setTimeout(() => {
+        setOrbState('listening');
+        setIsAudioPlaying(false);
+      }, 2000);
     });
   };
 
@@ -438,6 +474,7 @@ export const InterviewRoomPage: React.FC = () => {
       currentAudioElementRef.current.pause();
       currentAudioElementRef.current.currentTime = 0;
     }
+    setIsAudioPlaying(false);
     setOrbState('listening');
     if (metrics) {
       setMetrics({
@@ -727,82 +764,142 @@ export const InterviewRoomPage: React.FC = () => {
         </div>
       )}
 
+      {/* 3D Interviewer Character Persona Selector */}
+      <CharacterSelector
+        selectedCharacter={selectedCharacter}
+        onSelectCharacter={setSelectedCharacter}
+        disabled={isRecording || isProcessing}
+      />
+
       {/* Main Interactive Stage */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Aurora Orb & Audio Controls (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="p-8 rounded-3xl border border-slate-200 bg-white shadow-soft relative overflow-hidden flex flex-col items-center justify-center min-h-[460px]">
-            {/* Ambient Background Aura on White */}
-            <div
-              className={`absolute inset-0 transition-opacity duration-700 pointer-events-none ${
-                orbState === 'speaking'
-                  ? 'bg-radial-gradient from-cyan-100/70 via-indigo-50/50 to-transparent opacity-90'
-                  : orbState === 'listening'
-                  ? 'bg-radial-gradient from-emerald-100/70 via-teal-50/50 to-transparent opacity-90'
-                  : orbState === 'thinking'
-                  ? 'bg-radial-gradient from-purple-100/80 via-pink-50/50 to-transparent opacity-90'
-                  : 'bg-radial-gradient from-slate-100/60 to-transparent opacity-60'
-              }`}
-            />
+          <div className="p-6 sm:p-7 rounded-3xl border border-slate-200 bg-white shadow-soft relative overflow-hidden flex flex-col items-center justify-center min-h-[460px]">
+            {/* Studio Header Controls */}
+            <div className="w-full flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 z-10">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-indigo-600" />
+                  {selectedCharacter.name}
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                  {selectedCharacter.gender === 'female' ? 'Female' : 'Male'}, {selectedCharacter.age} • {selectedCharacter.title}
+                </span>
+              </div>
 
-            {/* Aurora Orb Centerpiece */}
-            <div className="relative flex items-center justify-center my-6 select-none">
-              <div
-                style={{
-                  transform: `scale(${1 + (micLevel / 100) * 0.4})`,
-                }}
-                className={`w-52 h-52 rounded-full blur-2xl transition-all duration-300 ${
-                  orbState === 'speaking'
-                    ? 'bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 opacity-70 animate-pulse'
-                    : orbState === 'listening'
-                    ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-70'
-                    : orbState === 'thinking'
-                    ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-80 animate-spin'
-                    : 'bg-indigo-200/60 opacity-50'
-                }`}
-              />
-
-              {/* Core Orb Sphere */}
-              <div
-                className={`relative w-40 h-40 rounded-full border border-white/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
-                  orbState === 'speaking'
-                    ? 'bg-gradient-to-br from-cyan-400 via-teal-400 to-indigo-600 shadow-cyan-500/40 scale-105'
-                    : orbState === 'listening'
-                    ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 shadow-emerald-500/35 scale-100'
-                    : orbState === 'thinking'
-                    ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-500/40 scale-95'
-                    : 'bg-gradient-to-br from-slate-100 via-indigo-50 to-slate-200 shadow-inner'
-                }`}
-              >
-                {orbState === 'speaking' && <Volume2 className="h-12 w-12 text-white animate-pulse" />}
-                {orbState === 'listening' && <Mic className="h-12 w-12 text-white animate-bounce" />}
-                {orbState === 'thinking' && <Sparkles className="h-12 w-12 text-white animate-spin" />}
-                {orbState === 'idle' && <Radio className="h-10 w-10 text-indigo-500" />}
+              {/* View Mode Toggle Pill */}
+              <div className="flex items-center space-x-1 p-0.5 bg-slate-100/90 rounded-xl border border-slate-200">
+                <button
+                  onClick={() => setViewMode('3d_avatar')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 ${
+                    viewMode === '3d_avatar'
+                      ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Sparkles className="h-3 w-3 text-indigo-600" />
+                  3D Human Avatar
+                </button>
+                <button
+                  onClick={() => setViewMode('aurora_orb')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 ${
+                    viewMode === 'aurora_orb'
+                      ? 'bg-white text-indigo-700 shadow-sm border border-slate-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Radio className="h-3 w-3 text-slate-500" />
+                  Aurora Orb
+                </button>
               </div>
             </div>
 
-            {/* Orb State Indicator Badge */}
-            <div className="flex flex-col items-center gap-1.5 mt-2">
-              <span
-                className={`text-xs uppercase font-mono tracking-widest font-bold px-3.5 py-1 rounded-full border transition-colors ${
-                  orbState === 'speaking'
-                    ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                    : orbState === 'listening'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : orbState === 'thinking'
-                    ? 'bg-purple-50 text-purple-700 border-purple-200'
-                    : 'bg-slate-100 text-slate-600 border-slate-200'
-                }`}
-              >
-                {orbState}
-              </span>
-              <p className="text-xs text-slate-500 font-medium">
-                {orbState === 'speaking' && 'Interviewer is speaking aloud...'}
-                {orbState === 'listening' && 'Listening to your spoken response...'}
-                {orbState === 'thinking' && 'LLM Brain evaluating depth & preparing response...'}
-                {orbState === 'idle' && 'Click "Speak Answer" to begin your response'}
-              </p>
-            </div>
+            {/* Central Visual: 3D Talking Avatar or Aurora Orb */}
+            {viewMode === '3d_avatar' ? (
+              <div className="w-full my-2">
+                <AvatarStudio3D
+                  character={selectedCharacter}
+                  orbState={orbState}
+                  isAudioPlaying={isAudioPlaying}
+                  visemes={currentVisemes}
+                />
+              </div>
+            ) : (
+              <>
+                {/* Ambient Background Aura on White */}
+                <div
+                  className={`absolute inset-0 transition-opacity duration-700 pointer-events-none ${
+                    orbState === 'speaking'
+                      ? 'bg-radial-gradient from-cyan-100/70 via-indigo-50/50 to-transparent opacity-90'
+                      : orbState === 'listening'
+                      ? 'bg-radial-gradient from-emerald-100/70 via-teal-50/50 to-transparent opacity-90'
+                      : orbState === 'thinking'
+                      ? 'bg-radial-gradient from-purple-100/80 via-pink-50/50 to-transparent opacity-90'
+                      : 'bg-radial-gradient from-slate-100/60 to-transparent opacity-60'
+                  }`}
+                />
+
+                {/* Aurora Orb Centerpiece */}
+                <div className="relative flex items-center justify-center my-6 select-none">
+                  <div
+                    style={{
+                      transform: `scale(${1 + (micLevel / 100) * 0.4})`,
+                    }}
+                    className={`w-52 h-52 rounded-full blur-2xl transition-all duration-300 ${
+                      orbState === 'speaking'
+                        ? 'bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400 opacity-70 animate-pulse'
+                        : orbState === 'listening'
+                        ? 'bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 opacity-70'
+                        : orbState === 'thinking'
+                        ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-80 animate-spin'
+                        : 'bg-indigo-200/60 opacity-50'
+                    }`}
+                  />
+
+                  {/* Core Orb Sphere */}
+                  <div
+                    className={`relative w-40 h-40 rounded-full border border-white/80 shadow-2xl flex items-center justify-center transition-all duration-500 ${
+                      orbState === 'speaking'
+                        ? 'bg-gradient-to-br from-cyan-400 via-teal-400 to-indigo-600 shadow-cyan-500/40 scale-105'
+                        : orbState === 'listening'
+                        ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 shadow-emerald-500/35 scale-100'
+                        : orbState === 'thinking'
+                        ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-500/40 scale-95'
+                        : 'bg-gradient-to-br from-slate-100 via-indigo-50 to-slate-200 shadow-inner'
+                    }`}
+                  >
+                    {orbState === 'speaking' && <Volume2 className="h-12 w-12 text-white animate-pulse" />}
+                    {orbState === 'listening' && <Mic className="h-12 w-12 text-white animate-bounce" />}
+                    {orbState === 'thinking' && <Sparkles className="h-12 w-12 text-white animate-spin" />}
+                    {orbState === 'idle' && <Radio className="h-10 w-10 text-indigo-500" />}
+                  </div>
+                </div>
+
+                {/* Orb State Indicator Badge */}
+                <div className="flex flex-col items-center gap-1.5 mt-2">
+                  <span
+                    className={`text-xs uppercase font-mono tracking-widest font-bold px-3.5 py-1 rounded-full border transition-colors ${
+                      orbState === 'speaking'
+                        ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                        : orbState === 'listening'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : orbState === 'thinking'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {orbState}
+                  </span>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {orbState === 'speaking' && 'Interviewer is speaking aloud...'}
+                    {orbState === 'listening' && 'Listening to your spoken response...'}
+                    {orbState === 'thinking' && 'LLM Brain evaluating depth & preparing response...'}
+                    {orbState === 'idle' && 'Click "Speak Answer" to begin your response'}
+                  </p>
+                </div>
+              </>
+            )}
 
             {/* Dual-Engine Live Captions Display */}
             {isRecording && (

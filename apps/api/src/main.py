@@ -42,6 +42,7 @@ app.add_middleware(RateLimitMiddleware, max_requests_per_minute=200)
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(interviews.router, prefix="/api/v1")
+app.include_router(interviews.router, prefix="/interview", tags=["interview-alias"])
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(resources.router, prefix="/api/v1")
 

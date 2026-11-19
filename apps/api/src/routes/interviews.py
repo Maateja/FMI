@@ -18,6 +18,12 @@ from src.schemas.interviews import (
     InterviewResponse,
     LiveKitTokenResponse,
 )
+from src.services.characters import (
+    INTERVIEWER_CHARACTERS,
+    clean_spoken_text,
+    get_character,
+    list_characters,
+)
 from src.services.interview_state import get_or_create_session
 from src.services.livekit import generate_livekit_token
 from src.services.report_engine import (
@@ -27,6 +33,7 @@ from src.services.report_engine import (
     render_html_report,
 )
 from src.services.usage_limits import UsageLimits, get_usage, increment_usage
+from src.services.visemes import generate_speech_visemes
 from src.services.voice_runner import VoiceRoundTripResponse, run_voice_round_trip
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
@@ -511,3 +518,90 @@ async def get_interview_report_html(
     report = await get_interview_report(interview_id, user)
     html_content = render_html_report(report, target_role=target_role)
     return HTMLResponse(content=html_content, status_code=200)
+
+
+class NextTurnRequest(BaseModel):
+    interview_id: str
+    character_id: str = "priya"
+    user_transcript: str = ""
+    audio_base64: str | None = None
+
+
+class NextTurnResponse(BaseModel):
+    interview_id: str
+    character_id: str
+    character_name: str
+    spoken_reply: str
+    question: str
+    audio_base64: str
+    audio_mime_type: str = "audio/wav"
+    visemes: list[dict[str, Any]] = []
+    internal_score: int
+    round: str
+    is_completed: bool
+    is_follow_up: bool
+    follow_up_count: int
+    latency_ms: float
+
+
+@router.get("/characters", response_model=list[dict[str, Any]])
+async def get_characters() -> list[dict[str, Any]]:
+    """Lists the 5 3D interviewer characters (Arjun, Rohan, Priya, Ananya, Kavita)."""
+    return list_characters()
+
+
+@router.post("/next-turn", response_model=NextTurnResponse)
+async def process_next_turn(
+    payload: NextTurnRequest,
+    user: CurrentUser = Depends(require_user),
+) -> NextTurnResponse:
+    """
+    Step 2 Conversational API endpoint:
+    - Persona & speech-formatting wrapper (short spoken sentences, stripped markdown/emojis).
+    - Map each interviewer character to specific system prompt and Kokoro/Edge voice ID.
+    - Generates 3D viseme timing data for lip-sync animation.
+    - Returns structured JSON for TalkingHead / Three.js 3D avatar.
+    """
+    import time
+    t_start = time.perf_counter()
+    character = get_character(payload.character_id)
+    interview = _dev_interviews.get(payload.interview_id)
+    target_role = str(interview["target_role"]) if interview else "Frontend Developer"
+
+    raw_audio = b""
+    if payload.audio_base64:
+        try:
+            raw_audio = base64.b64decode(payload.audio_base64)
+        except Exception:
+            raw_audio = b""
+
+    # Execute round trip with adaptive probing
+    round_trip = await run_voice_round_trip(
+        raw_audio,
+        target_role=target_role,
+        interview_id=payload.interview_id,
+        user_id=user.id,
+        user_transcript_override=payload.user_transcript,
+    )
+
+    # Clean spoken text for TTS and avatar speech
+    clean_speech = clean_spoken_text(round_trip.ai_response)
+    visemes = generate_speech_visemes(clean_speech, duration_seconds=2.8)
+    elapsed_ms = (time.perf_counter() - t_start) * 1000
+
+    return NextTurnResponse(
+        interview_id=payload.interview_id,
+        character_id=character.id,
+        character_name=character.name,
+        spoken_reply=clean_speech,
+        question=clean_speech,
+        audio_base64=round_trip.audio_base64,
+        audio_mime_type=round_trip.audio_mime_type,
+        visemes=visemes,
+        internal_score=round_trip.quality_score,
+        round=round_trip.round,
+        is_completed=round_trip.is_completed,
+        is_follow_up=round_trip.is_follow_up,
+        follow_up_count=round_trip.follow_up_count,
+        latency_ms=round(elapsed_ms, 2),
+    )

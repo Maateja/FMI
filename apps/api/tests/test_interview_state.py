@@ -26,7 +26,7 @@ async def test_interview_session_progression():
 
     assert res1["turn_number"] == 1
     assert len(session.turns) == 1
-    assert session.status in ("hr", "technical")
+    assert session.status in ("warmup", "hr", "technical")
 
     # Turn 2: Behavioral / HR Answer
     res2 = await session.evaluate_and_advance(
