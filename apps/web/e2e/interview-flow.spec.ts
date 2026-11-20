@@ -16,7 +16,7 @@ test.describe('FMI Interview & Report Flow', () => {
     await expect(page.getByRole('button', { name: /all/i })).toBeVisible();
   });
 
-  test('interview room renders Aurora orb, controls, and telemetry gauges', async ({ page }) => {
+  test('interview room renders AI interviewer studio, controls, and telemetry gauges', async ({ page }) => {
     // Navigate directly to a simulated interview session
     await page.goto('/interview/mock-session-001');
 

@@ -402,11 +402,12 @@ export const AvatarStudio3D: React.FC<AvatarStudio3DProps> = ({
 
       {/* Top Left: Character Profile Badge */}
       <div className="absolute top-4 left-4 flex items-center space-x-2.5 bg-white/95 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-slate-200/80 shadow-sm">
-        <div
-          className="h-8 w-8 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm"
-          style={{ backgroundColor: character.primary_color }}
-        >
-          {character.name.charAt(0)}
+        <div className="relative h-9 w-9 rounded-xl overflow-hidden border border-slate-200/80 shadow-sm shrink-0 bg-slate-100">
+          <img
+            src={character.avatar_image}
+            alt={character.name}
+            className="h-full w-full object-cover object-top"
+          />
         </div>
         <div>
           <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">

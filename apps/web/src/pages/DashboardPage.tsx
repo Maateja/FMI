@@ -132,7 +132,7 @@ export const DashboardPage: React.FC = () => {
               Welcome back, {user?.fullName || 'Candidate'}!
             </h1>
             <p className="text-sm text-slate-600 max-w-xl">
-              Targeting <span className="text-indigo-600 font-semibold">{user?.targetRole || 'Software Engineer'}</span>. Practice realistic voice rounds with our adaptive Aurora orb.
+              Targeting <span className="text-indigo-600 font-semibold">{user?.targetRole || 'Software Engineer'}</span>. Practice realistic voice rounds with our interactive 3D AI interviewers.
             </p>
           </div>
 

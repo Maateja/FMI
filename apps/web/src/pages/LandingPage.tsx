@@ -83,7 +83,7 @@ export const LandingPage: React.FC = () => {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="mt-6 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed"
         >
-          No robotic avatars or multiple-choice quizzes. Practice live two-way verbal interviews with an audio-reactive Aurora orb that listens, challenges your depth, and analyzes your body language.
+          Practice live two-way verbal interviews with photorealistic 3D AI interviewers with real-time lip-sync, adaptive follow-ups, and live body language telemetry.
         </motion.p>
 
         {/* Call to Actions */}
