@@ -58,7 +58,12 @@ async def run_voice_round_trip(
     )
 
     groq_key = settings.__dict__.get("GROQ_API_KEY", "")
-    if not user_transcript_override and len(audio_bytes) > 1000 and groq_key and not groq_key.startswith("placeholder"):
+    if (
+        not user_transcript_override
+        and len(audio_bytes) > 1000
+        and groq_key
+        and not groq_key.startswith("placeholder")
+    ):
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 files_payload: list[tuple[str, tuple[str | None, bytes | str, str | None]]] = [

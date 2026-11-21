@@ -1,9 +1,7 @@
-import pytest
 from src.services.characters import (
     INTERVIEWER_CHARACTERS,
     clean_spoken_text,
     get_character,
-    list_characters,
 )
 from src.services.visemes import generate_speech_visemes
 

@@ -1,4 +1,3 @@
-import pytest
 from src.services.adaptive_interviewer import (
     extract_candidate_signals,
     generate_adaptive_follow_up_heuristic,
@@ -22,23 +21,36 @@ def test_extract_candidate_signals_certification():
 
 
 def test_follow_up_on_project_and_tech_stack():
-    text = "For my college capstone, I developed a chat application using React, FastAPI, and PostgreSQL."
-    res = generate_adaptive_follow_up_heuristic(text, question="Tell me about yourself", current_round="warmup")
+    text = (
+        "For my college capstone, I developed a chat application using React, FastAPI, "
+        "and PostgreSQL."
+    )
+    res = generate_adaptive_follow_up_heuristic(
+        text, question="Tell me about yourself", current_round="warmup"
+    )
     assert res["requires_deep_dive"] is True
-    assert "tech stack" in res["follow_up_question"].lower() or "architect" in res["follow_up_question"].lower()
+    follow_up_lower = res["follow_up_question"].lower()
+    assert "tech stack" in follow_up_lower or "architect" in follow_up_lower
     assert "React" in res["follow_up_question"] or "FastAPI" in res["follow_up_question"]
 
 
 def test_follow_up_on_certification():
     text = "I recently finished a comprehensive course and certification in React and Redux."
-    res = generate_adaptive_follow_up_heuristic(text, question="Tell me about your background", current_round="warmup")
+    res = generate_adaptive_follow_up_heuristic(
+        text, question="Tell me about your background", current_round="warmup"
+    )
     assert res["requires_deep_dive"] is True
-    assert "course" in res["follow_up_question"].lower() or "certification" in res["follow_up_question"].lower()
+    follow_up_lower = res["follow_up_question"].lower()
+    assert "course" in follow_up_lower or "certification" in follow_up_lower
 
 
 def test_follow_up_on_react_technical_concept():
     text = "I mostly write frontend components in React with custom hooks."
-    res = generate_adaptive_follow_up_heuristic(text, question="What frontend technologies do you prefer?", current_round="technical")
+    res = generate_adaptive_follow_up_heuristic(
+        text,
+        question="What frontend technologies do you prefer?",
+        current_round="technical",
+    )
     assert res["requires_deep_dive"] is True
     assert "React" in res["follow_up_question"]
     assert "re-renders" in res["follow_up_question"] or "state" in res["follow_up_question"]

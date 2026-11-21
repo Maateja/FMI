@@ -143,9 +143,19 @@ def generate_adaptive_follow_up_heuristic(
         tech_phrase = f"{primary_tech} and {secondary_tech}" if secondary_tech else primary_tech
 
         options = [
-            f"You mentioned building that with {tech_phrase}. Why did you choose that specific tech stack over alternatives, and how did you architect the application?",
-            f"That sounds like a great project. How did you structure the code and manage data flow using {primary_tech}, and what was the hardest technical challenge you solved?",
-            f"Walking through your {primary_tech} project, what trade-offs did you encounter, and how did you test and measure its performance?",
+            (
+                f"You mentioned building that with {tech_phrase}. Why did you choose that specific "
+                "tech stack over alternatives, and how did you architect the application?"
+            ),
+            (
+                "That sounds like a great project. How did you structure the code and manage "
+                f"data flow using {primary_tech}, and what was the hardest technical challenge "
+                "you solved?"
+            ),
+            (
+                f"Walking through your {primary_tech} project, what trade-offs did you encounter, "
+                "and how did you test and measure its performance?"
+            ),
         ]
         follow_up = options[0]
         requires_deep_dive = True
@@ -156,13 +166,15 @@ def generate_adaptive_follow_up_heuristic(
         cert_tech = techs[0] if techs else "that domain"
         if cert_tech != "that domain":
             follow_up = (
-                f"Congratulations on completing that course! What was the most rigorous hands-on assignment "
-                f"you tackled with {cert_tech}, and how have you applied those learnings to your real-world projects?"
+                "Congratulations on completing that course! What was the most rigorous hands-on "
+                f"assignment you tackled with {cert_tech}, and how have you applied those "
+                "learnings to your real-world projects?"
             )
         else:
             follow_up = (
-                "That's great dedication to continuous learning. What was the most challenging technical concept "
-                "covered in that certification course, and how did you practically implement it?"
+                "That's great dedication to continuous learning. What was the most challenging "
+                "technical concept covered in that certification course, and how did you "
+                "practically implement it?"
             )
         requires_deep_dive = True
         quality_score = 80
@@ -171,7 +183,8 @@ def generate_adaptive_follow_up_heuristic(
     elif has_proj:
         follow_up = (
             "That sounds like an interesting project! How did you build it from the ground up, "
-            "why did you choose your particular tech stack, and what was your individual contribution?"
+            "why did you choose your particular tech stack, and what was your individual "
+            "contribution?"
         )
         requires_deep_dive = True
         quality_score = 80
@@ -196,8 +209,8 @@ def generate_adaptive_follow_up_heuristic(
             )
         elif "SQL" in primary_tech or "PostgreSQL" in primary_tech or "MongoDB" in primary_tech:
             follow_up = (
-                f"Working with {primary_tech}, how do you structure schemas, index queries for high performance, "
-                "and maintain data integrity?"
+                f"Working with {primary_tech}, how do you structure schemas, index queries for "
+                "high performance, and maintain data integrity?"
             )
         else:
             follow_up = (
@@ -210,15 +223,18 @@ def generate_adaptive_follow_up_heuristic(
     # Case 5: Warmup round where candidate introduced themselves
     elif current_round == "warmup":
         follow_up = (
-            "Thank you for sharing your background! Could you highlight one technical project from your resume "
-            "that you found most challenging or rewarding to build?"
+            "Thank you for sharing your background! Could you highlight one technical project "
+            "from your resume that you found most challenging or rewarding to build?"
         )
         requires_deep_dive = False
         quality_score = 80
 
     # Case 6: Short answer needing elaboration
     elif len(answer.split()) < 12:
-        follow_up = "Could you walk me through a specific real-world example of how you applied that in practice?"
+        follow_up = (
+            "Could you walk me through a specific real-world example of how you applied that "
+            "in practice?"
+        )
         requires_deep_dive = False
         quality_score = 60
 

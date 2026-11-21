@@ -218,9 +218,9 @@ class InterviewSessionState:
     ) -> dict[str, Any]:
         """
         Evaluates candidate response and generates adaptive follow-up questions:
-        - If the candidate mentioned building a project, asks how they built it and why they chose that tech stack.
-        - If the candidate mentioned a certification or course, asks about key concepts and practical application.
-        - If the candidate mentioned a specific technology (e.g. React), asks deep-dive technical questions.
+        - If candidate mentioned a project, asks how they built it and why they chose that stack.
+        - If candidate mentioned a certification, asks about key concepts and practical application.
+        - If candidate mentioned a tech (e.g. React), asks deep-dive technical questions.
         - Uses Gemini 2.0 Flash when available, with intelligent heuristic fallback.
         """
         api_key = settings.__dict__.get("GEMINI_API_KEY", "")
@@ -232,19 +232,24 @@ class InterviewSessionState:
                 target_role=self.target_role,
             )
 
+        exp_pts = ", ".join(expected_points) if expected_points else "General relevant knowledge"
         prompt = (
-            "You are an expert, warm, and highly adaptive AI technical interviewer for college freshers.\n"
+            "You are an expert, warm, and highly adaptive AI technical interviewer for freshers.\n"
             f"Current Round: {self.status.upper()}\n"
             f"Target Role: {self.target_role}\n"
-            f"Question Asked: \"{question}\"\n"
-            f"Expected Key Points: {', '.join(expected_points) if expected_points else 'General relevant knowledge'}\n"
-            f"Candidate Spoken Response: \"{answer}\"\n\n"
+            f'Question Asked: "{question}"\n'
+            f"Expected Key Points: {exp_pts}\n"
+            f'Candidate Spoken Response: "{answer}"\n\n'
             "Evaluate the response and generate an adaptive follow-up based on these rules:\n"
-            "1. IF THE CANDIDATE MENTIONED A PROJECT THEY BUILT: Ask how they built it, why they chose that specific tech stack over alternatives, their architecture, or how they solved an engineering challenge.\n"
-            "2. IF THE CANDIDATE MENTIONED A CERTIFICATION OR COURSE: Ask what key hands-on problem they solved, what they found most challenging, or how they applied that knowledge in practice.\n"
-            "3. IF THE CANDIDATE MENTIONED A SPECIFIC TECH (e.g. React, Node, Python, SQL, Docker): Ask an insightful technical question about how they used it, trade-offs, state management, performance, or internal mechanics.\n"
-            "4. IF THE RESPONSE IS VAGUE OR TOO SHORT: Ask them to substantiate with a concrete example or deep-dive into the practical steps.\n"
-            "5. Speak as the interviewer in 1 to 2 concise spoken sentences. Ask ONE clear question at a time.\n\n"
+            "1. IF CANDIDATE MENTIONED A PROJECT: Ask how they built it, why they chose that "
+            "tech stack over alternatives, architecture, or how they solved an engineering issue.\n"
+            "2. IF CANDIDATE MENTIONED A CERTIFICATION/COURSE: Ask what hands-on problem they "
+            "solved, what they found most challenging, or how they applied that in practice.\n"
+            "3. IF CANDIDATE MENTIONED A SPECIFIC TECH (e.g. React, Node, Python, SQL, Docker): "
+            "Ask an insightful question about trade-offs, state management, or performance.\n"
+            "4. IF THE RESPONSE IS VAGUE OR TOO SHORT: Ask them to substantiate with a concrete "
+            "example or deep-dive into practical steps.\n"
+            "5. Speak as the interviewer in 1-2 concise sentences. Ask ONE clear question.\n\n"
             "Provide a concise JSON response strictly matching this schema:\n"
             "{\n"
             "  \"is_complete\": boolean,\n"

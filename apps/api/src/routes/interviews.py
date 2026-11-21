@@ -19,7 +19,6 @@ from src.schemas.interviews import (
     LiveKitTokenResponse,
 )
 from src.services.characters import (
-    INTERVIEWER_CHARACTERS,
     clean_spoken_text,
     get_character,
     list_characters,

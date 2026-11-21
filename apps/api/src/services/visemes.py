@@ -27,7 +27,9 @@ VISEME_MAP = {
 }
 
 
-def generate_speech_visemes(spoken_text: str, duration_seconds: float = 2.5) -> list[dict[str, Any]]:
+def generate_speech_visemes(
+    spoken_text: str, duration_seconds: float = 2.5
+) -> list[dict[str, Any]]:
     """
     Generates time-stamped viseme keyframes for 3D human lip sync.
     Distributes phonemes evenly across the duration of spoken speech.
